@@ -45,3 +45,26 @@ class truncated_beta(stats.rv_continuous):
         return (stats.beta.cdf(x, alpha, beta) - stats.beta.cdf(a, alpha, beta)) / (
             stats.beta.cdf(b, alpha, beta) - stats.beta.cdf(a, alpha, beta)
         )
+
+
+class trunc_norm_mixture(stats.rv_continuous):
+
+    def _pdf(self, x: float, mu_pos: float, mu_neg: float, sigma: float) -> float:
+        """_summary_
+
+        Args:
+            x (float): _description_
+            mu_pos (float): _description_
+            mu_neg (float): _description_
+            sigma (float): _description_
+
+        Returns:
+            float: _description_
+        """
+        Z_pos = 1 - stats.norm.cdf(0, loc=mu_pos, scale=sigma)
+        Z_neg = stats.norm.cdf(0, loc=mu_neg, scale=sigma)
+        p_pos = Z_pos / (Z_pos + Z_neg)
+        p_neg = Z_neg / (Z_pos + Z_neg)
+        return p_pos * stats.truncnorm.pdf(
+            x, a=0, b=np.inf, loc=mu_pos, scale=sigma
+        ) + p_neg * stats.truncnorm.pdf(x, a=-np.inf, b=0, loc=mu_neg, scale=sigma)

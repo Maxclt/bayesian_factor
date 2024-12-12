@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "bayesian-factor"
+version = "0.1.0"
+description = "Replication code for *On Posterior Consistency of Bayesian Factor Models in High Dimensions* by Yucong Ma and Jun S. Liu."
+authors = ["mcoulet <maxime.coulet@ensae.fr>, ymachta <yassine.machta@ensae.fr>, lstepien <leo.stepien@ensae.fr>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.12,<3.13"
+numpy = "^2.2.0"
+scipy = "^1.14.1"
+matplotlib = "^3.9.3"
+ipykernel = "^6.29.5"
+
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.5"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

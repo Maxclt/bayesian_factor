@@ -26,6 +26,20 @@ Factor models are crucial tools for interpretable dimensionality reduction in hi
 
 ---
 
+## **References**
+
+Bhattacharya, A., & Dunson, D. B. (2011). Sparse Bayesian infinite factor models. Biometrika, 98(2), 291–306. https://doi.org/10.1093/biomet/asr013
+
+Fruehwirth-Schnatter, S., & Lopes, H. F. (2018). Sparse Bayesian factor analysis when the number of factors is unknown. Bayesian Analysis, 13(1), 1–22. https://doi.org/10.1214/17-BA1063
+
+Ghosh, J., & Dunson, D. B. (2009). Default prior distributions and efficient posterior computation in Bayesian factor models. Journal of Computational and Graphical Statistics, 18(2), 306–320. https://doi.org/10.1198/jcgs.2009.08101
+
+Ročková, V., & George, E. I. (2016). Fast Bayesian factor analysis via automatic rotations to sparsity. Journal of the American Statistical Association, 111(516), 1608–1622. https://doi.org/10.1080/01621459.2016.1234131
+
+Ma, Y., & Liu, J. S. (2021). On posterior consistency of Bayesian factor models in high dimensions. arXiv preprint arXiv:2006.01055. https://arxiv.org/abs/2006.01055
+
+---
+
 ## **Repository Structure**
 ```plaintext
 bayesian-factor-model/

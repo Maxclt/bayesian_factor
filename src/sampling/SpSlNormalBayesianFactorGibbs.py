@@ -142,7 +142,7 @@ class SpSlNormalBayesianFactorGibbs:
         A = np.linalg.inv(np.eye(self.num_factor) + Z @ self.B)
 
         for i in range(self.num_obs):
-            self.Omega[:, i] = multivariate_normal.rvs(mean=A @ Z, cov=A)
+            self.Omega[:, i] = multivariate_normal.rvs(mean=A @ Z @ self.Y[:, i], cov=A)
 
         if store:
             self.Omega_path.append(self.Omega_path)
@@ -150,7 +150,9 @@ class SpSlNormalBayesianFactorGibbs:
         if get:
             return self.Omega
 
-    def sample_features_allocation(self, store, get: bool = False):
+    def sample_features_allocation(
+        self, store, get: bool = False, epsilon: float = 1e-10
+    ):
         for j, k in itertools.product(range(self.num_var), range(self.num_factor)):
             p = (
                 self.lamba1
@@ -164,6 +166,7 @@ class SpSlNormalBayesianFactorGibbs:
                     + self.lamba1
                     * np.exp(-self.lamba1 * np.abs(self.B[j, k]))
                     * self.Theta[k]
+                    + epsilon
                 )
             )
             self.Gamma[j, k] = bernoulli(p).rvs()
@@ -180,16 +183,16 @@ class SpSlNormalBayesianFactorGibbs:
             beta = np.sum(self.Gamma[:, k] == 0) + 1
 
             if k == 0:
-                self.Theta[k] = truncated_beta._rvs(alpha, beta, self.Theta[k + 1], 1)[
-                    0
-                ]
+                self.Theta[k] = truncated_beta()._rvs(
+                    alpha=alpha, beta=beta, a=self.Theta[k + 1], b=1
+                )
             elif k == (self.num_factor - 1):
-                self.Theta[k] = truncated_beta._rvs(alpha, beta, 0, self.Theta[k - 1])[
-                    0
-                ]
+                self.Theta[k] = truncated_beta()._rvs(
+                    alpha=alpha, beta=beta, a=0, b=self.Theta[k - 1]
+                )
             else:
-                self.Theta[k] = truncated_beta._rvs(
-                    alpha, beta, self.Theta[k + 1], self.Theta[k - 1]
+                self.Theta[k] = truncated_beta()._rvs(
+                    alpha=alpha, beta=beta, a=self.Theta[k + 1], b=self.Theta[k - 1]
                 )
 
         if store:
@@ -205,7 +208,7 @@ class SpSlNormalBayesianFactorGibbs:
                 self.eta * self.epsilon
                 + np.sum((self.Y[j, :] - self.B[j, :] @ self.Omega) ** 2)
             ) / 2
-            self.Sigma[j] = invgamma.rvs(a=shape, scale=scale)[0]
+            self.Sigma[j] = invgamma.rvs(a=shape, scale=scale)
 
         if store:
             self.Sigma_path.append(self.Sigma)

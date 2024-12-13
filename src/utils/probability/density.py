@@ -75,7 +75,9 @@ class truncated_beta(stats.rv_continuous):
 
 
 class trunc_norm_mixture(stats.rv_continuous):
-    def __init__(self, mu_pos: float, mu_neg: float, sigma: float):
+    def __init__(
+        self, mu_pos: float, mu_neg: float, sigma: float, epsilon: float = 1e-10
+    ):
         super().__init__()
         # Initialize the parameters
         self.mu_pos = mu_pos
@@ -85,8 +87,8 @@ class trunc_norm_mixture(stats.rv_continuous):
         # Precompute the Z and w values
         self.Z_pos = 1 - stats.norm.cdf(0, loc=self.mu_pos, scale=self.sigma)
         self.Z_neg = stats.norm.cdf(0, loc=self.mu_neg, scale=self.sigma)
-        self.w_pos = self.Z_pos / (self.Z_pos + self.Z_neg)
-        self.w_neg = self.Z_neg / (self.Z_pos + self.Z_neg)
+        self.w_pos = (self.Z_pos + epsilon / 2) / (self.Z_pos + self.Z_neg + epsilon)
+        self.w_neg = (self.Z_neg + epsilon / 2) / (self.Z_pos + self.Z_neg + epsilon)
 
     def _pdf(self, x: float) -> float:
 

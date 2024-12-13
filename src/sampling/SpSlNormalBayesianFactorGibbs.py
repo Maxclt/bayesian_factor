@@ -70,7 +70,7 @@ class SpSlNormalBayesianFactorGibbs:
         self.Gamma_path = [Gamma]
         self.Theta_path = [Theta]
 
-    def perform_gibbs_sampling(self, iterations: int = False):
+    def perform_gibbs_sampling(self, iterations: int = False, store: bool = True):
         """_summary_
 
         Args:
@@ -85,21 +85,23 @@ class SpSlNormalBayesianFactorGibbs:
             num_iters = iterations
 
         # Plot the initial set up
-        self.plot_points("Initial Random Assignments")
+        # self.plot_points("Initial Parameters")
 
         # Run for the given number of iterations
         for i in range(num_iters):
-            self.calc_dist_log_prob()
-            self.sample_mixture_locations()
-            self.sample_mixture_assignments()
+            self.sample_loadings(store=store)
+            self.sample_factors(store=store)
+            self.sample_features_allocation(store=store)
+            self.sample_features_sparsity(store=store)
+            self.sample_diag_covariance(store=store)
 
-        # Plot the final mixture assignments
-        self.plot_points("Final Mixture Assignments")
+        # Plot the final Parameters (Heatmap for B)
+        # self.plot_points("Final Parameters")
 
-        # Final Plot of the log probability as a function of iteration
-        self.plot_prob()
+        # Final Plot of the log |B_{1,1}|
+        # self.plot_prob()
 
-        return self.u_locations, self.Y
+        return self.B, self.Omega, self.Sigma, self.Gamma, self.Theta
 
     def sample_loading(self, j: int, k: int, product: float) -> float:
 
@@ -121,16 +123,19 @@ class SpSlNormalBayesianFactorGibbs:
         # Sample from truncated normal mixture
         return trunc_norm_mixture(mu_pos=mu_pos, mu_neg=mu_neg, sigma=sigma).rvs()[0]
 
-    def sample_loadings(self, get: bool = False):
+    def sample_loadings(self, store, get: bool = False):
         for j in range(self.num_var):
             product = np.dot(self.B[j, :], self.Omega)
             for k in range(self.num_factor):
                 self.B[j, k] = self.sample_loading(j, k, product)
 
+        if store:
+            self.B_path.append(self.B)
+
         if get:
             return self.B
 
-    def sample_factors(self, get: bool = False):
+    def sample_factors(self, store, get: bool = False):
 
         # Compute (I_K + B^T Σ^-1 B)^-1
         Z = self.B.T @ np.diag(1 / self.Sigma)
@@ -139,10 +144,13 @@ class SpSlNormalBayesianFactorGibbs:
         for i in range(self.num_obs):
             self.Omega[:, i] = multivariate_normal.rvs(mean=A @ Z, cov=A)
 
+        if store:
+            self.Omega_path.append(self.Omega_path)
+
         if get:
             return self.Omega
 
-    def sample_features_allocation(self, get: bool = False):
+    def sample_features_allocation(self, store, get: bool = False):
         for j, k in itertools.product(range(self.num_var), range(self.num_factor)):
             p = (
                 self.lamba1
@@ -160,26 +168,47 @@ class SpSlNormalBayesianFactorGibbs:
             )
             self.Gamma[j, k] = bernoulli(p).rvs()
 
+        if store:
+            self.Gamma_path.append(self.Gamma)
+
         if get:
             return self.Gamma
 
-    def sample_features_sparsity(self, get: bool = False):
+    def sample_features_sparsity(self, store, get: bool = False):
         for k in range(self.num_factor):
-            alphak = np.sum(self.Gamma[:, k]) + self.alpha * (
-                k == (self.num_factor - 1)
-            )
-            betak = np.sum(self.Gamma[:, k] == 0) + 1
+            alpha = np.sum(self.Gamma[:, k]) + self.alpha * (k == (self.num_factor - 1))
+            beta = np.sum(self.Gamma[:, k] == 0) + 1
 
             if k == 0:
-                self.Theta[k] = truncated_beta._rvs(alphak, betak, self.Theta[k + 1], 1)
+                self.Theta[k] = truncated_beta._rvs(alpha, beta, self.Theta[k + 1], 1)[
+                    0
+                ]
             elif k == (self.num_factor - 1):
-                self.Theta[k] = truncated_beta._rvs(alphak, betak, 0, self.Theta[k - 1])
+                self.Theta[k] = truncated_beta._rvs(alpha, beta, 0, self.Theta[k - 1])[
+                    0
+                ]
             else:
                 self.Theta[k] = truncated_beta._rvs(
-                    alphak, betak, self.Theta[k + 1], self.Theta[k - 1]
+                    alpha, beta, self.Theta[k + 1], self.Theta[k - 1]
                 )
+
+        if store:
+            self.Theta_path.append(self.Theta)
+
         if get:
             return self.Theta
 
-    def sample_diag_covariance(self, get: bool=False):
-        
+    def sample_diag_covariance(self, store, get: bool = False):
+        shape = (self.eta + self.num_obs) / 2
+        for j in range(self.num_var):
+            scale = (
+                self.eta * self.epsilon
+                + np.sum((self.Y[j, :] - self.B[j, :] @ self.Omega) ** 2)
+            ) / 2
+            self.Sigma[j] = invgamma.rvs(a=shape, scale=scale)[0]
+
+        if store:
+            self.Sigma_path.append(self.Sigma)
+
+        if get:
+            return self.Sigma

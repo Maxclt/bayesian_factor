@@ -142,7 +142,7 @@ class SpSlNormalBayesianFactorGibbs:
         if get:
             return self.Omega
 
-    def sample_feature_allocations(self, get: bool = False):
+    def sample_features_allocation(self, get: bool = False):
         for j, k in itertools.product(range(self.num_var), range(self.num_factor)):
             p = (
                 self.lamba1
@@ -162,3 +162,24 @@ class SpSlNormalBayesianFactorGibbs:
 
         if get:
             return self.Gamma
+
+    def sample_features_sparsity(self, get: bool = False):
+        for k in range(self.num_factor):
+            alphak = np.sum(self.Gamma[:, k]) + self.alpha * (
+                k == (self.num_factor - 1)
+            )
+            betak = np.sum(self.Gamma[:, k] == 0) + 1
+
+            if k == 0:
+                self.Theta[k] = truncated_beta._rvs(alphak, betak, self.Theta[k + 1], 1)
+            elif k == (self.num_factor - 1):
+                self.Theta[k] = truncated_beta._rvs(alphak, betak, 0, self.Theta[k - 1])
+            else:
+                self.Theta[k] = truncated_beta._rvs(
+                    alphak, betak, self.Theta[k + 1], self.Theta[k - 1]
+                )
+        if get:
+            return self.Theta
+
+    def sample_diag_covariance(self, get: bool=False):
+        

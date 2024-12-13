@@ -23,8 +23,11 @@ class truncated_beta(stats.rv_continuous):
         Returns:
             float: value of a truncated beta density function at x
         """
-        return stats.beta.pdf(x, alpha, beta) / (
-            stats.beta.cdf(b, alpha, beta) - stats.beta.cdf(a, alpha, beta)
+        return (
+            stats.beta.pdf(x, alpha, beta)
+            * (x >= a)
+            * (x <= b)
+            / (stats.beta.cdf(b, alpha, beta) - stats.beta.cdf(a, alpha, beta))
         )
 
     def _cdf(self, x, alpha, beta, a, b) -> float:
@@ -42,9 +45,33 @@ class truncated_beta(stats.rv_continuous):
             float: value of a truncated beta cumulative distribution function
             at x
         """
-        return (stats.beta.cdf(x, alpha, beta) - stats.beta.cdf(a, alpha, beta)) / (
-            stats.beta.cdf(b, alpha, beta) - stats.beta.cdf(a, alpha, beta)
-        )
+        truncated_cdf = (
+            stats.beta.cdf(x, alpha, beta) - stats.beta.cdf(a, alpha, beta)
+        ) / (stats.beta.cdf(b, alpha, beta) - stats.beta.cdf(a, alpha, beta))
+        return (x > a) * (x < b) * truncated_cdf + (x >= b).astype(float)
+
+    def _rvs(
+        self, alpha: float, beta: float, a: float, b: float, size: int = 1
+    ) -> np.ndarray:
+        """Generate random samples from the truncated beta distribution.
+
+        Args:
+            alpha (float): shape parameter
+            beta (float): shape parameter
+            a (float): lower bound between 0 and 1
+            b (float): upper bound between 0 and 1
+            size (int): number of samples to generate
+
+        Returns:
+            np.ndarray: random samples from the truncated beta distribution
+        """
+        # Generate uniform samples on the truncated range [F(a), F(b)]
+        cdf_a = stats.beta.cdf(a, alpha, beta)
+        cdf_b = stats.beta.cdf(b, alpha, beta)
+        u = np.random.uniform(cdf_a, cdf_b, size)
+
+        # Map the uniform samples to the beta distribution using the PPF (inverse CDF)
+        return stats.beta.ppf(u, alpha, beta)
 
 
 class trunc_norm_mixture(stats.rv_continuous):

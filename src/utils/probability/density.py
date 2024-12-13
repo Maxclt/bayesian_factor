@@ -48,23 +48,60 @@ class truncated_beta(stats.rv_continuous):
 
 
 class trunc_norm_mixture(stats.rv_continuous):
+    def __init__(self, mu_pos: float, mu_neg: float, sigma: float):
+        super().__init__()
+        # Initialize the parameters
+        self.mu_pos = mu_pos
+        self.mu_neg = mu_neg
+        self.sigma = sigma
 
-    def _pdf(self, x: float, mu_pos: float, mu_neg: float, sigma: float) -> float:
-        """_summary_
+        # Precompute the Z and w values
+        self.Z_pos = 1 - stats.norm.cdf(0, loc=self.mu_pos, scale=self.sigma)
+        self.Z_neg = stats.norm.cdf(0, loc=self.mu_neg, scale=self.sigma)
+        self.w_pos = self.Z_pos / (self.Z_pos + self.Z_neg)
+        self.w_neg = self.Z_neg / (self.Z_pos + self.Z_neg)
 
-        Args:
-            x (float): _description_
-            mu_pos (float): _description_
-            mu_neg (float): _description_
-            sigma (float): _description_
+    def _pdf(self, x: float) -> float:
 
-        Returns:
-            float: _description_
-        """
-        Z_pos = 1 - stats.norm.cdf(0, loc=mu_pos, scale=sigma)
-        Z_neg = stats.norm.cdf(0, loc=mu_neg, scale=sigma)
-        p_pos = Z_pos / (Z_pos + Z_neg)
-        p_neg = Z_neg / (Z_pos + Z_neg)
-        return p_pos * stats.truncnorm.pdf(
-            x, a=0, b=np.inf, loc=mu_pos, scale=sigma
-        ) + p_neg * stats.truncnorm.pdf(x, a=-np.inf, b=0, loc=mu_neg, scale=sigma)
+        return self.w_pos * stats.truncnorm.pdf(
+            x, a=0, b=np.inf, loc=self.mu_pos, scale=self.sigma
+        ) + self.w_neg * stats.truncnorm.pdf(
+            x, a=-np.inf, b=0, loc=self.mu_neg, scale=self.sigma
+        )
+
+    def _cdf(self, x: float) -> float:
+
+        if x < 0:
+            return (
+                self.w_neg
+                * stats.norm.cdf(x, loc=self.mu_neg, scale=self.sigma)
+                / self.Z_neg
+            )
+        else:
+            return (
+                self.w_neg
+                + self.w_pos
+                * (
+                    stats.norm.cdf(x, loc=self.mu_pos, scale=self.sigma)
+                    - stats.norm.cdf(0, loc=self.mu_pos, scale=self.sigma)
+                )
+                / self.Z_pos
+            )
+
+    def rvs(self, size=1):
+
+        component = np.random.choice([1, -1], size=size, p=[self.w_pos, self.w_neg])
+        samples = []
+
+        for c in component:
+            if c > 0:
+                sample = stats.truncnorm.rvs(
+                    a=0, b=np.inf, loc=self.mu_pos, scale=self.sigma, size=1
+                )
+            else:
+                sample = stats.truncnorm.rvs(
+                    a=-np.inf, b=0, loc=self.mu_neg, scale=self.sigma, size=1
+                )
+            samples.append(sample[0])
+
+        return np.array(samples)

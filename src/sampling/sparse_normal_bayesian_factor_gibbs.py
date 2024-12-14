@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.stats import norm, bernoulli, invgamma, multivariate_normal
-import matplotlib as plt
+import matplotlib.pyplot as plt
 import itertools
 import seaborn as sns
 
@@ -12,7 +12,6 @@ class SpSlNormalBayesianFactorGibbs:
         self,
         Y: np.array,
         B: np.array,
-        Omega: np.array,
         Sigma: np.array,
         Gamma: np.array,
         Theta: np.array,
@@ -43,16 +42,16 @@ class SpSlNormalBayesianFactorGibbs:
         # Data
         self.Y = Y
 
-        # Parameters
-        self.B = B
-        self.Omega = Omega
-        self.Sigma = Sigma
-        self.Gamma = Gamma
-        self.Theta = Theta
-
         # Shapes
         self.num_var, self.num_obs = Y.shape
         self.num_factor = B.shape[1]
+
+        # Parameters
+        self.B = B
+        self.Omega = np.zeros((self.num_factor, self.num_obs))
+        self.Sigma = Sigma
+        self.Gamma = Gamma
+        self.Theta = Theta
 
         # Hyperparameters
         self.alpha = alpha
@@ -68,7 +67,7 @@ class SpSlNormalBayesianFactorGibbs:
         # Trajectories
         self.paths = {
             "B": [B],
-            "Omega": [Omega],
+            "Omega": [],
             "Sigma": [Sigma],
             "Gamma": [Gamma],
             "Theta": [Theta],
@@ -90,6 +89,9 @@ class SpSlNormalBayesianFactorGibbs:
 
         # Plot the initial set up
         # self.plot_points("Initial Parameters")
+
+        # TODO Add a possibility to initialize Omega given only B, Sigma
+        self.sample_factors(store=store)
 
         # Run for the given number of iterations
         for i in range(self.num_iters):
@@ -182,7 +184,11 @@ class SpSlNormalBayesianFactorGibbs:
         if get:
             return self.Gamma
 
-    def sample_features_sparsity(self, store, get: bool = False):
+    def sample_features_sparsity(
+        self,
+        store,
+        get: bool = False,
+    ):
         for k in range(self.num_factor):
             alpha = np.sum(self.Gamma[:, k]) + self.alpha * (k == (self.num_factor - 1))
             beta = np.sum(self.Gamma[:, k] == 0) + 1
@@ -229,14 +235,16 @@ class SpSlNormalBayesianFactorGibbs:
         cmap: str = "viridis",
     ):
 
-        if "str_param" not in self.paths:
-            raise KeyError("'str_param' key not found in parameters paths.")
+        if str_param not in self.paths:
+            raise KeyError(
+                f"{str_param} key not found in parameters paths keys: {self.paths.keys()}."
+            )
 
         if not iters:
             iter_indices = np.logspace(
                 np.log10(1),
                 np.log10(self.num_iters),
-                num=np.min(10, self.num_iters),
+                num=min(10, self.num_iters),
                 dtype=int,
             )
 
@@ -248,16 +256,21 @@ class SpSlNormalBayesianFactorGibbs:
         # Create the figure
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
         axes = axes.flatten()  # Flatten for easy indexing
+        cbar = False
 
         for ax_idx, idx in enumerate(iter_indices):
             matrix = self.paths[str_param][idx]
+            print(matrix.shape)
             # Apply absolute value if required
             if abs_value:
                 matrix = np.abs(matrix)
 
-        # Plot heatmap on the current axis
-        sns.heatmap(matrix, cmap=cmap, annot=False, cbar=True, ax=axes[ax_idx])
-        axes[ax_idx].set_title(f"Itr {idx}")
+            if (ax_idx + 1) % 5 == 0:
+                cbar = True
+            # Plot heatmap on the current axis
+            sns.heatmap(matrix, cmap=cmap, annot=False, cbar=cbar, ax=axes[ax_idx])
+            axes[ax_idx].set_title(f"Itr {idx}")
+            cbar = False
 
         # Hide any unused axes
         for ax_idx in range(len(iter_indices), len(axes)):
@@ -266,3 +279,5 @@ class SpSlNormalBayesianFactorGibbs:
         # Adjust layout
         plt.tight_layout()
         plt.show()
+
+    # TODO add plot estimated against true covariance matrix of the normal bayesian factor model (BB^T + Sigma)

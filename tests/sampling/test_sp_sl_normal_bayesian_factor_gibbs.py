@@ -1,14 +1,15 @@
 import numpy as np
 import pytest
 
-from src.sampling.SpSlNormalBayesianFactorGibbs import SpSlNormalBayesianFactorGibbs
+from src.sampling.sparse_normal_bayesian_factor_gibbs import (
+    SpSlNormalBayesianFactorGibbs,
+)
 
 
 def test_gibbs_sampler():
     # Sample data
     Y = np.random.randn(5, 10)  # 5 variables, 10 observations
     B = np.random.randn(5, 3)  # 5 variables, 3 factors
-    Omega = np.random.randn(3, 10)  # 3 factors, 10 observations
     Sigma = np.ones(5)  # Diagonal covariance for 5 variables
     Gamma = np.random.randint(0, 2, size=(5, 3))  # Binary allocation matrix
     Theta = np.random.rand(3)  # Feature sparsity vector for 3 factors
@@ -23,7 +24,7 @@ def test_gibbs_sampler():
 
     # Instantiate the Gibbs sampler
     model = SpSlNormalBayesianFactorGibbs(
-        Y, B, Omega, Sigma, Gamma, Theta, alpha, eta, epsilon, lambda0, lambda1, burn_in
+        Y, B, Sigma, Gamma, Theta, alpha, eta, epsilon, lambda0, lambda1, burn_in
     )
 
     # Perform Gibbs sampling

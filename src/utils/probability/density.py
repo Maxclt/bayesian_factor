@@ -68,6 +68,7 @@ class truncated_beta(stats.rv_continuous):
         # Generate uniform samples on the truncated range [F(a), F(b)]
         cdf_a = stats.beta.cdf(a, alpha, beta)
         cdf_b = stats.beta.cdf(b, alpha, beta)
+        print(a, b, alpha, beta, cdf_a, cdf_b)
         u = np.random.uniform(cdf_a, cdf_b, size)
 
         # Map the uniform samples to the beta distribution using the PPF (inverse CDF)

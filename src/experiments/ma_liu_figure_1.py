@@ -26,6 +26,15 @@ random = False
 mean = 1
 std = 5
 
+# Hyperparameters
+alpha = 1 / num_variables
+eta = 1
+epsilon = 1
+lambda0 = 20
+lambda1 = 0.001
+
+
+# True Parameters
 BTrue = create_true_loadings(
     num_factors=num_factors,
     num_variables=num_variables,
@@ -40,6 +49,33 @@ SigmaTrue = np.eye(
     num_variables
 )  # TODO define a function to create_true_covariance either random or not
 
+# Initial Latent Parameters
+Gamma0 = create_true_loadings(
+    num_factors=num_factors,
+    num_variables=num_variables,
+    block_size=block_size,
+    overlap=overlap,
+)
+
+Theta0 = np.full(num_factors, 0.5)
+
+# Simulated Value for Y
 DataGeneratingProcess = NormalBayesianFactorDGP(B=BTrue, Sigma=SigmaTrue)
 
 Y_sim = DataGeneratingProcess.simulate(size=num_sim)
+
+# Initiate Bayesian Normal Factor Gibbs Sampler
+SparseGibbsSampling = SpSlNormalBayesianFactorGibbs(
+    Y=Y_sim,
+    B=BTrue,
+    Sigma=SigmaTrue,
+    Gamma=Gamma0,
+    Theta=Theta0,
+    alpha=alpha,
+    eta=eta,
+    epsilon=epsilon,
+    lambda0=lambda0,
+    lambda1=lambda1,
+)
+
+# Perform Gibbs Sampler for posterior

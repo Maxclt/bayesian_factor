@@ -37,11 +37,11 @@ def test_gibbs_sampler():
     assert Theta.shape == (3,), "Theta has incorrect shape"
 
     # Check that paths are being stored
-    assert len(model.B_path) == 11, "B path length incorrect"
-    assert len(model.Omega_path) == 11, "Omega path length incorrect"
-    assert len(model.Sigma_path) == 11, "Sigma path length incorrect"
-    assert len(model.Gamma_path) == 11, "Gamma path length incorrect"
-    assert len(model.Theta_path) == 11, "Theta path length incorrect"
+    assert len(model.paths["B"]) == 11, "B path length incorrect"
+    assert len(model.paths["Omega"]) == 11, "Omega path length incorrect"
+    assert len(model.paths["Sigma"]) == 11, "Sigma path length incorrect"
+    assert len(model.paths["Gamma"]) == 11, "Gamma path length incorrect"
+    assert len(model.paths["Theta"]) == 11, "Theta path length incorrect"
 
 
 # Run the test

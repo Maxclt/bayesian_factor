@@ -2,6 +2,7 @@ import numpy as np
 from scipy.stats import norm, bernoulli, invgamma, multivariate_normal
 import matplotlib as plt
 import itertools
+import seaborn as sns
 
 from src.utils.probability.density import truncated_beta, trunc_norm_mixture
 
@@ -62,15 +63,20 @@ class SpSlNormalBayesianFactorGibbs:
 
         # Gibbs Settings
         self.burn_in = burn_in
+        self.num_iters = burn_in
 
         # Trajectories
-        self.B_path = [B]
-        self.Omega_path = [Omega]
-        self.Sigma_path = [Sigma]
-        self.Gamma_path = [Gamma]
-        self.Theta_path = [Theta]
+        self.paths = {
+            "B": [B],
+            "Omega": [Omega],
+            "Sigma": [Sigma],
+            "Gamma": [Gamma],
+            "Theta": [Theta],
+        }
 
-    def perform_gibbs_sampling(self, iterations: int = False, store: bool = True):
+    def perform_gibbs_sampling(
+        self, iterations: int = False, store: bool = True, plot: bool = True
+    ):
         """_summary_
 
         Args:
@@ -79,16 +85,14 @@ class SpSlNormalBayesianFactorGibbs:
         Returns:
             _type_: _description_
         """
-        if not iterations:
-            num_iters = self.burn_in
-        else:
-            num_iters = iterations
+        if iterations:
+            self.num_iters = iterations
 
         # Plot the initial set up
         # self.plot_points("Initial Parameters")
 
         # Run for the given number of iterations
-        for i in range(num_iters):
+        for i in range(self.num_iters):
             self.sample_loadings(store=store)
             self.sample_factors(store=store)
             self.sample_features_allocation(store=store)
@@ -96,7 +100,8 @@ class SpSlNormalBayesianFactorGibbs:
             self.sample_diag_covariance(store=store)
 
         # Plot the final Parameters (Heatmap for B)
-        # self.plot_points("Final Parameters")
+        if plot:
+            self.plot_heatmaps()
 
         # Final Plot of the log |B_{1,1}|
         # self.plot_prob()
@@ -130,7 +135,7 @@ class SpSlNormalBayesianFactorGibbs:
                 self.B[j, k] = self.sample_loading(j, k, product)
 
         if store:
-            self.B_path.append(self.B)
+            self.paths["B"].append(self.B)
 
         if get:
             return self.B
@@ -145,7 +150,7 @@ class SpSlNormalBayesianFactorGibbs:
             self.Omega[:, i] = multivariate_normal.rvs(mean=A @ Z @ self.Y[:, i], cov=A)
 
         if store:
-            self.Omega_path.append(self.Omega_path)
+            self.paths["Omega"].append(self.Omega)
 
         if get:
             return self.Omega
@@ -172,7 +177,7 @@ class SpSlNormalBayesianFactorGibbs:
             self.Gamma[j, k] = bernoulli(p).rvs()
 
         if store:
-            self.Gamma_path.append(self.Gamma)
+            self.paths["Gamma"].append(self.Gamma)
 
         if get:
             return self.Gamma
@@ -196,7 +201,7 @@ class SpSlNormalBayesianFactorGibbs:
                 )
 
         if store:
-            self.Theta_path.append(self.Theta)
+            self.paths["Theta"].append(self.Theta)
 
         if get:
             return self.Theta
@@ -211,7 +216,53 @@ class SpSlNormalBayesianFactorGibbs:
             self.Sigma[j] = invgamma.rvs(a=shape, scale=scale)
 
         if store:
-            self.Sigma_path.append(self.Sigma)
+            self.paths["Sigma"].append(self.Sigma)
 
         if get:
             return self.Sigma
+
+    def plot_heatmaps(
+        self,
+        str_param: str = "B",
+        iters: np.array = False,
+        abs_value: bool = True,
+        cmap: str = "viridis",
+    ):
+
+        if "str_param" not in self.paths:
+            raise KeyError("'str_param' key not found in parameters paths.")
+
+        if not iters:
+            iter_indices = np.logspace(
+                np.log10(1),
+                np.log10(self.num_iters),
+                num=np.min(10, self.num_iters),
+                dtype=int,
+            )
+
+        # Fixed columns per row
+        n_plots = len(iter_indices)
+        n_cols = 5  # Number of columns per row
+        n_rows = int(np.ceil(n_plots / n_cols))
+
+        # Create the figure
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+        axes = axes.flatten()  # Flatten for easy indexing
+
+        for ax_idx, idx in enumerate(iter_indices):
+            matrix = self.paths[str_param][idx]
+            # Apply absolute value if required
+            if abs_value:
+                matrix = np.abs(matrix)
+
+        # Plot heatmap on the current axis
+        sns.heatmap(matrix, cmap=cmap, annot=False, cbar=True, ax=axes[ax_idx])
+        axes[ax_idx].set_title(f"Itr {idx}")
+
+        # Hide any unused axes
+        for ax_idx in range(len(iter_indices), len(axes)):
+            axes[ax_idx].axis("off")
+
+        # Adjust layout
+        plt.tight_layout()
+        plt.show()

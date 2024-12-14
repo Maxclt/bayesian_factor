@@ -79,6 +79,14 @@ class trunc_norm_mixture(stats.rv_continuous):
     def __init__(
         self, mu_pos: float, mu_neg: float, sigma: float, epsilon: float = 1e-10
     ):
+        """_summary_
+
+        Args:
+            mu_pos (float): _description_
+            mu_neg (float): _description_
+            sigma (float): _description_
+            epsilon (float, optional): _description_. Defaults to 1e-10.
+        """
         super().__init__()
         # Initialize the parameters
         self.mu_pos = mu_pos

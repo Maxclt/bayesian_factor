@@ -50,7 +50,7 @@ class SpSlNormalBayesianFactorGibbs:
         self.B = B
         self.Omega = np.zeros((self.num_factor, self.num_obs))
         self.Sigma = Sigma
-        self.Gamma = Gamma
+        self.Gamma = Gamma  # TODO add method sampling gamma from theta only or just pass it as np.zeros(B.shape) in init()
         self.Theta = Theta
 
         # Hyperparameters
@@ -69,7 +69,7 @@ class SpSlNormalBayesianFactorGibbs:
             "B": [B],
             "Omega": [],
             "Sigma": [Sigma],
-            "Gamma": [Gamma],
+            "Gamma": [],
             "Theta": [Theta],
         }
 

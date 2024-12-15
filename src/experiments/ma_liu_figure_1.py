@@ -9,10 +9,7 @@ from src.utils.setup.create_true_loadings import create_true_loadings
 # TODO modify this to have the possibility to set the parameter when running the file
 
 # Force Random Seed
-seed = 42
-
-if not seed == False:
-    np.random.seed(seed)
+np.random.seed(42)
 
 # Normal Factor Bayesian Dimensions
 num_sim = 100
@@ -31,7 +28,7 @@ alpha = 1 / num_variables
 eta = 1
 epsilon = 1
 lambda0 = 20
-lambda1 = 0.001
+lambda1 = 0.1
 
 
 # True Parameters
@@ -45,7 +42,7 @@ BTrue = create_true_loadings(
     std=std,
 )
 
-SigmaTrue = np.eye(
+SigmaTrue = np.ones(
     num_variables
 )  # TODO define a function to create_true_covariance either random or not
 
@@ -79,3 +76,4 @@ SparseGibbsSampling = SpSlNormalBayesianFactorGibbs(
 )
 
 # Perform Gibbs Sampler for posterior
+SparseGibbsSampling.perform_gibbs_sampling(iterations=100)

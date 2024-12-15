@@ -68,7 +68,7 @@ class truncated_beta(stats.rv_continuous):
         # Generate uniform samples on the truncated range [F(a), F(b)]
         cdf_a = stats.beta.cdf(a, alpha, beta)
         cdf_b = stats.beta.cdf(b, alpha, beta)
-        print(a, b, alpha, beta, cdf_a, cdf_b)
+        print(f"a:{a}, b:{b}, alpha:{alpha}, beta:{beta}, cdf_a:{cdf_a}, cdf_b:{cdf_b}")
         u = np.random.uniform(cdf_a, cdf_b, size)
 
         # Map the uniform samples to the beta distribution using the PPF (inverse CDF)
@@ -96,15 +96,19 @@ class trunc_norm_mixture(stats.rv_continuous):
         # Precompute the Z and w values
         self.Z_pos = 1 - stats.norm.cdf(0, loc=self.mu_pos, scale=self.sigma)
         self.Z_neg = stats.norm.cdf(0, loc=self.mu_neg, scale=self.sigma)
+        self.Z = self.Z_pos + self.Z_neg + epsilon
         self.w_pos = (self.Z_pos + epsilon / 2) / (self.Z_pos + self.Z_neg + epsilon)
         self.w_neg = (self.Z_neg + epsilon / 2) / (self.Z_pos + self.Z_neg + epsilon)
 
     def _pdf(self, x: float) -> float:
 
-        return self.w_pos * stats.truncnorm.pdf(
-            x, a=0, b=np.inf, loc=self.mu_pos, scale=self.sigma
-        ) + self.w_neg * stats.truncnorm.pdf(
-            x, a=-np.inf, b=0, loc=self.mu_neg, scale=self.sigma
+        return (
+            np.where(
+                x > 0,
+                stats.norm.pdf(x, loc=self.mu_pos, scale=self.sigma),
+                stats.norm.pdf(x, loc=self.mu_neg, scale=self.sigma),
+            )
+            / self.Z
         )
 
     def _cdf(self, x: float) -> float:
@@ -134,11 +138,19 @@ class trunc_norm_mixture(stats.rv_continuous):
         for c in component:
             if c > 0:
                 sample = stats.truncnorm.rvs(
-                    a=0, b=np.inf, loc=self.mu_pos, scale=self.sigma, size=1
+                    a=-self.mu_pos / self.sigma,
+                    b=np.inf,
+                    loc=self.mu_pos,
+                    scale=self.sigma,
+                    size=1,
                 )
             else:
                 sample = stats.truncnorm.rvs(
-                    a=-np.inf, b=0, loc=self.mu_neg, scale=self.sigma, size=1
+                    a=-np.inf,
+                    b=-self.mu_neg / self.sigma,
+                    loc=self.mu_neg,
+                    scale=self.sigma,
+                    size=1,
                 )
             samples.append(sample[0])
 

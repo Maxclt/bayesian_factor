@@ -2,7 +2,7 @@ import numpy as np
 
 
 def create_true_loadings(
-    num_factors, num_variables, block_size, overlap, random=False, mean=1, std_dev=5
+    num_factors, num_variables, block_size, overlap, random=False, mean=1, std=5
 ):
     B = np.zeros((num_variables, num_factors))
     block_gap = block_size - overlap
@@ -14,7 +14,7 @@ def create_true_loadings(
         end_row = min(start_rows + block_size, num_variables)
         if random:
             B[start_rows:end_row, col] = np.random.normal(
-                loc=mean, scale=std_dev, size=(end_row - start_rows)
+                loc=mean, scale=std, size=(end_row - start_rows)
             )
         else:
             B[start_rows:end_row, col] = 1

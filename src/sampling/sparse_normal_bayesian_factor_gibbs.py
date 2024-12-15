@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.stats import norm, bernoulli, invgamma, multivariate_normal
+from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
 import itertools
 import seaborn as sns
@@ -21,6 +22,7 @@ class SpSlNormalBayesianFactorGibbs:
         lambda0: float,
         lambda1: float,
         burn_in: int = 50,
+        fast: bool = True,
     ):
         """_summary_
 
@@ -47,10 +49,12 @@ class SpSlNormalBayesianFactorGibbs:
         self.num_factor = B.shape[1]
 
         # Parameters
-        self.B = B
+        self.B = B if fast else B
         self.Omega = np.zeros((self.num_factor, self.num_obs))
         self.Sigma = Sigma
-        self.Gamma = Gamma  # TODO add method sampling gamma from theta only or just pass it as np.zeros(B.shape) in init()
+        self.Gamma = (
+            Gamma if fast else Gamma
+        )  # TODO add method sampling gamma from theta only or just pass it as np.zeros(B.shape) in init()
         self.Theta = Theta
 
         # Hyperparameters
@@ -63,6 +67,7 @@ class SpSlNormalBayesianFactorGibbs:
         # Gibbs Settings
         self.burn_in = burn_in
         self.num_iters = burn_in
+        self.fast = fast
 
         # Trajectories
         self.paths = {
@@ -99,7 +104,10 @@ class SpSlNormalBayesianFactorGibbs:
         # Run for the given number of iterations
         for i in range(self.num_iters):
             print(f"iter:{i}")
-            self.sample_loadings(store=store)
+            if self.fast:
+                self.sample_loadings_fast(store=store)
+            else:
+                self.sample_loadings(store=store)
             self.sample_factors(store=store)
             self.sample_features_allocation(store=store)
             self.sample_features_sparsity(store=store)
@@ -143,13 +151,43 @@ class SpSlNormalBayesianFactorGibbs:
     def sample_loadings(self, store, get: bool = False):
         print(f"B[0,0]:{self.B[0,0]}")
         new_B = np.zeros(self.B.shape)
+        products = np.dot(self.B, self.Omega)
         for j in range(self.num_var):
-            product = np.dot(self.B[j, :], self.Omega)
+            # product = np.dot(self.B[j, :], self.Omega)
+            adjusted_Y = self.Y[j, :] - products[j, :]
             for k in range(self.num_factor):
                 new_B[j, k] = self.sample_loading(j, k, product)
 
         self.B = new_B
         print(f"new_B[0,0]:{self.B[0,0]}")
+
+        if store:
+            self.paths["B"].append(self.B)
+
+        if get:
+            return self.B
+
+    def sample_loadings_fast(self, store, get: bool = False):
+
+        a = np.sum(self.Omega**2, axis=1) / (2 * self.Sigma[:, np.newaxis])
+        BOmega = self.B @ self.Omega
+        adjusted_Y = (
+            self.Y - BOmega[:, np.newaxis, :] + (self.B[:, :, np.newaxis] * self.Omega)
+        )
+        b = (self.Omega * adjusted_Y).sum(axis=2) / self.Sigma[:, np.newaxis]
+        c = self.lamba1 * self.Gamma + self.lamba0 * (1 - self.Gamma)
+
+        for j in range(self.num_var):
+            for k in range(self.num_factor):
+                # Use precomputed a, b, c
+                mu_pos = (b[j, k] - c[j, k]) / (2 * a[j, k])
+                mu_neg = (b[j, k] + c[j, k]) / (2 * a[j, k])
+                sigma = np.sqrt(1 / (2 * a[j, k]))
+
+                # Sample from truncated normal mixture
+                self.B[j, k] = trunc_norm_mixture(
+                    mu_pos=mu_pos, mu_neg=mu_neg, sigma=sigma
+                ).rvs()[0]
 
         if store:
             self.paths["B"].append(self.B)
@@ -180,25 +218,23 @@ class SpSlNormalBayesianFactorGibbs:
     def sample_features_allocation(
         self, store, get: bool = False, epsilon: float = 1e-10
     ):
-        for j, k in itertools.product(range(self.num_var), range(self.num_factor)):
+        for j in range(self.num_var):
             p = (
-                self.lamba1
-                * np.exp(-self.lamba1 * np.abs(self.B[j, k]))
-                * self.Theta[k]
+                self.lamba1 * np.exp(-self.lamba1 * np.abs(self.B[j, :])) * self.Theta
             ) / (
                 (
                     self.lamba0
-                    * np.exp(-self.lamba0 * np.abs(self.B[j, k]))
-                    * (1 - self.Theta[k])
+                    * np.exp(-self.lamba0 * np.abs(self.B[j, :]))
+                    * (1 - self.Theta)
                     + self.lamba1
-                    * np.exp(-self.lamba1 * np.abs(self.B[j, k]))
-                    * self.Theta[k]
+                    * np.exp(-self.lamba1 * np.abs(self.B[j, :]))
+                    * self.Theta
                     + epsilon
                 )
             )  # TODO seems to be too small after the second iter, theta = 0.28, B = 0.033 seems too small should be around one
-            self.Gamma[j, k] = bernoulli(p).rvs()
-            if j == 0 and k == 0:
-                print(f"p:{p}, Gamma[1,1]:{self.Gamma[0,0]}")
+            self.Gamma[j, :] = bernoulli(p).rvs()
+            # if j == 0 and k == 0:
+            # print(f"p:{p}, Gamma[1,1]:{self.Gamma[0,0]}")
 
         if store:
             self.paths["Gamma"].append(self.Gamma)

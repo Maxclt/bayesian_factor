@@ -68,7 +68,6 @@ class truncated_beta(stats.rv_continuous):
         # Generate uniform samples on the truncated range [F(a), F(b)]
         cdf_a = stats.beta.cdf(a, alpha, beta)
         cdf_b = stats.beta.cdf(b, alpha, beta)
-        print(f"a:{a}, b:{b}, alpha:{alpha}, beta:{beta}, cdf_a:{cdf_a}, cdf_b:{cdf_b}")
         u = np.random.uniform(cdf_a, cdf_b, size)
 
         # Map the uniform samples to the beta distribution using the PPF (inverse CDF)
@@ -97,8 +96,8 @@ class trunc_norm_mixture(stats.rv_continuous):
         self.Z_pos = 1 - stats.norm.cdf(0, loc=self.mu_pos, scale=self.sigma)
         self.Z_neg = stats.norm.cdf(0, loc=self.mu_neg, scale=self.sigma)
         self.Z = self.Z_pos + self.Z_neg + epsilon
-        self.w_pos = (self.Z_pos + epsilon / 2) / (self.Z_pos + self.Z_neg + epsilon)
-        self.w_neg = (self.Z_neg + epsilon / 2) / (self.Z_pos + self.Z_neg + epsilon)
+        self.w_pos = (self.Z_pos + epsilon / 2) / (self.Z)
+        self.w_neg = (self.Z_neg + epsilon / 2) / (self.Z)
 
     def _pdf(self, x: float) -> float:
 

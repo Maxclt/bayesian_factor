@@ -104,13 +104,13 @@ class SpSlNormalBayesianFactorGibbs:
         # Run for the given number of iterations
         for i in range(self.num_iters):
             print(f"iter:{i}")
+            self.sample_factors(store=store)
+            self.sample_features_allocation(store=store)
+            self.sample_features_sparsity(store=store)
             if self.fast:
                 self.sample_loadings_fast(store=store)
             else:
                 self.sample_loadings(store=store)
-            self.sample_factors(store=store)
-            self.sample_features_allocation(store=store)
-            self.sample_features_sparsity(store=store)
             self.sample_diag_covariance(store=store)
 
         # Plot the final Parameters (Heatmap for B)
@@ -150,15 +150,11 @@ class SpSlNormalBayesianFactorGibbs:
 
     def sample_loadings(self, store, get: bool = False):
         print(f"B[0,0]:{self.B[0,0]}")
-        new_B = np.zeros(self.B.shape)
-        products = np.dot(self.B, self.Omega)
         for j in range(self.num_var):
-            # product = np.dot(self.B[j, :], self.Omega)
-            adjusted_Y = self.Y[j, :] - products[j, :]
+            product = np.dot(self.B[j, :], self.Omega)
             for k in range(self.num_factor):
-                new_B[j, k] = self.sample_loading(j, k, product)
+                self.B[j, k] = self.sample_loading(j, k, product)
 
-        self.B = new_B
         print(f"new_B[0,0]:{self.B[0,0]}")
 
         if store:
@@ -207,8 +203,6 @@ class SpSlNormalBayesianFactorGibbs:
         for i in range(self.num_obs):
             self.Omega[:, i] = multivariate_normal.rvs(mean=A @ Z @ self.Y[:, i], cov=A)
 
-        print(f"Omega[1,1]:{self.Omega[0, 0]}")
-
         if store:
             self.paths["Omega"].append(self.Omega)
 
@@ -231,10 +225,8 @@ class SpSlNormalBayesianFactorGibbs:
                     * self.Theta
                     + epsilon
                 )
-            )  # TODO seems to be too small after the second iter, theta = 0.28, B = 0.033 seems too small should be around one
+            )  # TODO For column k=5, too much 1 maybe due to draw of theta[5] too high and why theta[5] drawn too high maybe because of p
             self.Gamma[j, :] = bernoulli(p).rvs()
-            # if j == 0 and k == 0:
-            # print(f"p:{p}, Gamma[1,1]:{self.Gamma[0,0]}")
 
         if store:
             self.paths["Gamma"].append(self.Gamma)
@@ -256,7 +248,7 @@ class SpSlNormalBayesianFactorGibbs:
             )
             beta = np.sum(self.Gamma[:, k] == 0) + 1
 
-            if k == 0:
+            if k == 0:  # Theta[5] increase too much
                 self.Theta[k] = truncated_beta()._rvs(
                     alpha=alpha, beta=beta, a=self.Theta[k + 1], b=1
                 )
@@ -283,12 +275,6 @@ class SpSlNormalBayesianFactorGibbs:
                 + np.sum((self.Y[j, :] - self.B[j, :] @ self.Omega) ** 2)
             ) / 2  # TODO seems to be too small after iter one
             self.Sigma[j] = invgamma.rvs(a=shape, scale=scale)
-            if j == 0:
-                print(f"Y[{j}, :]:{self.Y[j, :]}")
-                print(f"prod:{self.B[j, :] @ self.Omega}")
-                print(f"Shape:{shape}")
-                print(f"Sigma[{j}]:{self.Sigma}")
-                print(f"Scale[{j}]:{scale}")
             # scale may be wrong: is too big #TODO for j = 596 and sigma make a of loadings too big.
 
         print(f"Sigma:{self.Sigma}")

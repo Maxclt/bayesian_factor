@@ -9,7 +9,7 @@ from src.utils.setup.create_true_loadings import create_true_loadings
 # TODO modify this to have the possibility to set the parameter when running the file
 
 # Force Random Seed
-np.random.seed(42)
+# np.random.seed(42)
 
 # Normal Factor Bayesian Dimensions
 num_sim = 100
@@ -27,7 +27,7 @@ std = 5
 alpha = 1 / num_variables
 eta = 1
 epsilon = 1
-lambda0 = 20
+lambda0 = 20  # try with lambda greater
 lambda1 = 0.1
 
 
@@ -73,6 +73,7 @@ SparseGibbsSampling = SpSlNormalBayesianFactorGibbs(
     epsilon=epsilon,
     lambda0=lambda0,
     lambda1=lambda1,
+    fast=False,
 )
 
 # Perform Gibbs Sampler for posterior

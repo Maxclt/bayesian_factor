@@ -21,7 +21,6 @@ class SpSlNormalBayesianFactorGibbs:
         lambda0: float,
         lambda1: float,
         burn_in: int = 50,
-        fast: bool = True,
         device: str = "cuda",
     ):
         """Initialize the Bayesian Factor Gibbs Sampler.
@@ -41,10 +40,14 @@ class SpSlNormalBayesianFactorGibbs:
             fast (bool, optional): _description_. Defaults to True.
             device (str, optional): _description_. Defaults to "cuda".
         """
-        # Move to GPU if available
-        self.device = torch.device(
-            "mps" if torch.backends.mps.is_available() else "cpu"
-        )
+        # Move to GPU if available, "mps" for Mac, "cuda" for Windows
+        if device == "mps":
+            available = torch.backends.mps.is_available()
+        elif device == "cuda":
+            available = torch.cuda.is_available()
+        else:
+            return KeyError("device should be either 'mps' or 'cuda'")
+        self.device = torch.device(device if available else "cpu")
 
         # Data
         self.Y = Y.to(self.device)
@@ -70,7 +73,6 @@ class SpSlNormalBayesianFactorGibbs:
         # Gibbs settings
         self.burn_in = burn_in
         self.num_iters = burn_in
-        self.fast = fast
 
         # Trajectories for tracking parameters
         self.paths = {
@@ -117,18 +119,21 @@ class SpSlNormalBayesianFactorGibbs:
         c = self.lambda1 * self.Gamma + self.lambda0 * (1 - self.Gamma)
 
         # Vectorized sampling from truncated normal mixture
-        mu_pos = (b - c) / (2 * a)
-        mu_neg = (b + c) / (2 * a)
-        sigma = torch.sqrt(1 / (2 * a))
+        mu_pos = ((b - c) / (2 * a)).to(device="cpu")
+        mu_neg = ((b + c) / (2 * a)).to(device="cpu")
+        sigma = torch.sqrt(1 / (2 * a)).to(device="cpu")
 
         # Simulate samples using CPU for now (replace with GPU-adapted truncated sampler if available)
-        B_new = torch.empty_like(self.B)
-        for j, k in itertools.product(range(self.num_var), range(self.num_factor)):
-            B_new[j, k] = trunc_norm_mixture(
+        B_new = torch.stack(
+            trunc_norm_mixture(
                 mu_pos=mu_pos[j, k].item(),
                 mu_neg=mu_neg[j, k].item(),
                 sigma=sigma[j, k].item(),
             ).rvs()
+            for j, k in itertools.product(
+                range(mu_pos.shape[0]), range(mu_pos.shape[1])
+            )
+        )
 
         self.B = B_new.to(self.device)
 
@@ -141,12 +146,12 @@ class SpSlNormalBayesianFactorGibbs:
             torch.eye(self.num_factor, device=self.device)
             + self.B.T @ torch.diag(1 / self.Sigma) @ self.B
         )
-        A = torch.linalg.inv(precision)
-        mean = A @ self.B.T @ torch.diag(1 / self.Sigma) @ self.Y
+        cov = torch.linalg.inv(precision)
+        mean = cov @ self.B.T @ torch.diag(1 / self.Sigma) @ self.Y
         self.Omega = torch.stack(
             [
                 torch.distributions.MultivariateNormal(
-                    mean[:, i], covariance_matrix=A
+                    mean[:, i], covariance_matrix=cov
                 ).sample()
                 for i in range(self.num_obs)
             ],
@@ -171,6 +176,36 @@ class SpSlNormalBayesianFactorGibbs:
 
         if store:
             self.paths["Gamma"].append(self.Gamma.cpu().numpy())
+
+    def sample_features_sparsity(
+        self,
+        store,
+        get: bool = False,
+        epsilon: float = 1e-10,
+    ):
+        for k in range(self.num_factor - 1, -1, -1):
+            alpha = (
+                torch.sum(self.Gamma[:, k]).cpu()
+                + self.alpha * (k == (self.num_factor - 1))
+                + epsilon
+            )
+            beta = torch.sum(self.Gamma[:, k] == 0).cpu() + 1
+
+            if k == 0:
+                a, b = self.Theta[k + 1].cpu(), 1.0
+            elif k == (self.num_factor - 1):
+                a, b = 0.0, self.Theta[k - 1].cpu()
+            else:
+                a, b = self.Theta[k + 1].cpu(), self.Theta[k - 1].cpu()
+
+            self.Theta[k] = truncated_beta()._rvs(alpha=alpha, beta=beta, a=a, b=b)
+
+        print(f"Theta:{self.Theta}")
+        if store:
+            self.paths["Theta"].append(self.Theta)
+
+        if get:
+            return self.Theta
 
     def sample_diag_covariance(self, store: bool = True):
         """Sample the diagonal covariance matrix `Sigma`."""

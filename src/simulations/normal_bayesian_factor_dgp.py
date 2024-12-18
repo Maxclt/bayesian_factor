@@ -1,9 +1,9 @@
-import numpy as np
+import torch
 from scipy.stats import multivariate_normal
 
 
 class NormalBayesianFactorDGP:
-    def __init__(self, B: np.array, Sigma: np.array):
+    def __init__(self, B: torch.Tensor, Sigma: torch.Tensor):
         """_summary_
 
         Args:
@@ -11,8 +11,11 @@ class NormalBayesianFactorDGP:
             Sigma (np.array): True Covariance Matrix (G x G)
             num_sim (int): number of simulations
         """
-        self.B = B
-        self.Sigma = Sigma
+        self.B = B.numpy()
+        self.Sigma = Sigma.numpy()
 
     def simulate(self, size):
-        return multivariate_normal.rvs(cov=self.B @ self.B.T + self.Sigma, size=size).T
+        return torch.tensor(
+            multivariate_normal.rvs(cov=self.B @ self.B.T + self.Sigma, size=size).T,
+            dtype=torch.float32,
+        )

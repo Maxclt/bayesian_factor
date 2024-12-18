@@ -2,9 +2,37 @@ import torch
 import itertools
 import matplotlib.pyplot as plt
 import seaborn as sns
+import time
+import numpy as np
 
+from tqdm import tqdm
+from joblib import Parallel, delayed
 from scipy.stats import bernoulli, invgamma
+
 from src.utils.probability.density import truncated_beta, trunc_norm_mixture
+
+
+def simulate_loading(args):
+    mu_pos, mu_neg, sigma = args
+    return trunc_norm_mixture(mu_pos=mu_pos, mu_neg=mu_neg, sigma=sigma).rvs()
+
+
+def parallelized_loading(
+    mu_pos, mu_neg, sigma, num_var, num_factor, device, float_storage
+):
+    indices = itertools.product(range(num_var), range(num_factor))
+    args = [
+        (mu_pos[j, k].item(), mu_neg[j, k].item(), sigma[j, k].item())
+        for j, k in indices
+    ]
+    # Use Joblib for parallel execution
+    samples = Parallel(n_jobs=-1)(delayed(simulate_loading)(arg) for arg in args)
+
+    # Reshape the output
+    B = torch.tensor(np.array(samples), dtype=float_storage, device=device).reshape(
+        num_var, num_factor
+    )  # work on reshape
+    return B
 
 
 class SpSlNormalBayesianFactorGibbs:
@@ -26,7 +54,7 @@ class SpSlNormalBayesianFactorGibbs:
         """Initialize the Bayesian Factor Gibbs Sampler.
 
         Args:
-            Y (torch.Tensor): _description_
+            Y (torch.Tensor): Observed Data (G x n)
             B (torch.Tensor): _description_
             Sigma (torch.Tensor): _description_
             Gamma (torch.Tensor): _description_
@@ -43,25 +71,34 @@ class SpSlNormalBayesianFactorGibbs:
         # Move to GPU if available, "mps" for Mac, "cuda" for Windows
         if device == "mps":
             available = torch.backends.mps.is_available()
+            self.float_storage = torch.float32
         elif device == "cuda":
             available = torch.cuda.is_available()
+            self.float_storage = torch.float64
+        elif device == "cpu":
+            available = True
+            self.float_storage = torch.float64
         else:
             return KeyError("device should be either 'mps' or 'cuda'")
         self.device = torch.device(device if available else "cpu")
 
         # Data
-        self.Y = Y.to(self.device)
+        self.Y = Y.to(self.device, dtype=self.float_storage)
 
         # Shapes
         self.num_var, self.num_obs = Y.shape
         self.num_factor = B.shape[1]
 
         # Parameters
-        self.B = B.to(self.device)
-        self.Omega = torch.zeros((self.num_factor, self.num_obs), device=self.device)
-        self.Sigma = Sigma.to(self.device)
-        self.Gamma = Gamma.to(self.device)
-        self.Theta = Theta.to(self.device)
+        self.B = B.to(self.device, dtype=self.float_storage)
+        self.Omega = torch.zeros(
+            (self.num_factor, self.num_obs),
+            device=self.device,
+            dtype=self.float_storage,
+        )
+        self.Sigma = Sigma.to(self.device, dtype=self.float_storage)
+        self.Gamma = Gamma.to(self.device, dtype=self.float_storage)
+        self.Theta = Theta.to(self.device, dtype=self.float_storage)
 
         # Hyperparameters
         self.alpha = alpha
@@ -90,13 +127,19 @@ class SpSlNormalBayesianFactorGibbs:
         if iterations:
             self.num_iters = iterations
 
-        for i in range(self.num_iters):
-            print(f"Iteration: {i + 1}")
-            self.sample_factors(store=store)
-            self.sample_features_allocation(store=store)
-            self.sample_features_sparsity(store=store)
-            self.sample_loadings_fast(store=store)
-            self.sample_diag_covariance(store=store)
+        with tqdm(total=self.num_iters, desc="Gibbs Sampling", unit="iter") as pbar:
+            for i in range(self.num_iters):
+                self.sample_factors(store=store)
+                self.sample_features_allocation(store=store)
+                self.sample_features_sparsity(store=store)
+                self.sample_loadings(store=store)
+                self.sample_diag_covariance(store=store)
+
+                # Update the progress bar
+                pbar.update(1)
+
+                if i % (self.num_iters // 10) == 0 or i < 10:
+                    print(f"Check Theta: {self.Theta}")
 
         if plot:
             self.plot_heatmaps()
@@ -104,38 +147,41 @@ class SpSlNormalBayesianFactorGibbs:
     def sample_loadings(self, store: bool = True):
         """Vectorized sampling of the loading matrix `B`."""
         # Compute a
-        a = torch.einsum("ki,j->jk", self.Omega**2, 1 / (2 * self.Sigma**2))
+        a = torch.einsum("ki,j->jk", self.Omega**2, 1 / (2 * self.Sigma))
 
         # Compute b
-        mask = 1 - torch.eye(self.num_factor, device="cuda")
+        mask = 1 - torch.eye(
+            self.num_factor, device=self.device, dtype=self.float_storage
+        )
         excluded_sum = torch.einsum(
-            "jl,li,lk->jk", self.B, self.Omega, mask
-        )  # Shape (G, K)
-        b = (self.Y.sum(dim=0, keepdim=True).T - excluded_sum) / (
-            self.Sigma**2
-        ).unsqueeze(1)
+            "jl,li,lk->jik", self.B, self.Omega, mask
+        )  # Shape (n,G)
+        b = torch.einsum(
+            "ki, jik -> jk",
+            self.Omega,
+            self.Y.unsqueeze(2).repeat(1, 1, self.num_factor) - excluded_sum,
+        ) / (self.Sigma).unsqueeze(
+            1
+        )  # should be about 2a but too large, problem
 
         # Compute c
         c = self.lambda1 * self.Gamma + self.lambda0 * (1 - self.Gamma)
 
         # Vectorized sampling from truncated normal mixture
-        mu_pos = ((b - c) / (2 * a)).to(device="cpu")
-        mu_neg = ((b + c) / (2 * a)).to(device="cpu")
-        sigma = torch.sqrt(1 / (2 * a)).to(device="cpu")
+        mu_pos = ((b - c) / (2 * a)).cpu()
+        mu_neg = ((b + c) / (2 * a)).cpu()
+        sigma = torch.sqrt(1 / (2 * a)).cpu()
 
         # Simulate samples using CPU for now (replace with GPU-adapted truncated sampler if available)
-        B_new = torch.stack(
-            trunc_norm_mixture(
-                mu_pos=mu_pos[j, k].item(),
-                mu_neg=mu_neg[j, k].item(),
-                sigma=sigma[j, k].item(),
-            ).rvs()
-            for j, k in itertools.product(
-                range(mu_pos.shape[0]), range(mu_pos.shape[1])
-            )
-        )
-
-        self.B = B_new.to(self.device)
+        self.B = parallelized_loading(
+            mu_pos=mu_pos,
+            mu_neg=mu_neg,
+            sigma=sigma,
+            num_var=self.num_var,
+            num_factor=self.num_factor,
+            device=self.device,
+            float_storage=self.float_storage,
+        )  # parallelize and assess what is slow
 
         if store:
             self.paths["B"].append(self.B.cpu().numpy())
@@ -147,21 +193,22 @@ class SpSlNormalBayesianFactorGibbs:
             + self.B.T @ torch.diag(1 / self.Sigma) @ self.B
         )
         cov = torch.linalg.inv(precision)
-        mean = cov @ self.B.T @ torch.diag(1 / self.Sigma) @ self.Y
+        cov = (cov + cov.T) / 2
+        mean = (cov @ self.B.T @ torch.diag(1 / self.Sigma) @ self.Y).cpu()
         self.Omega = torch.stack(
             [
                 torch.distributions.MultivariateNormal(
-                    mean[:, i], covariance_matrix=cov
+                    mean[:, i], covariance_matrix=cov.cpu()
                 ).sample()
                 for i in range(self.num_obs)
             ],
             dim=1,
-        )
+        ).to(device=self.device, dtype=self.float_storage)
 
         if store:
             self.paths["Omega"].append(self.Omega.cpu().numpy())
 
-    def sample_features_allocation(self, store: bool = True):
+    def sample_features_allocation(self, store: bool = True, epsilon: float = 1e-10):
         """Sample the feature allocation matrix `Gamma`."""
         p = (
             self.lambda1 * torch.exp(-self.lambda1 * torch.abs(self.B)) * self.Theta
@@ -170,9 +217,11 @@ class SpSlNormalBayesianFactorGibbs:
             * torch.exp(-self.lambda0 * torch.abs(self.B))
             * (1 - self.Theta)
             + self.lambda1 * torch.exp(-self.lambda1 * torch.abs(self.B)) * self.Theta
-            + self.epsilon
+            + epsilon
         )
         self.Gamma = torch.bernoulli(p)
+
+        self.p = p
 
         if store:
             self.paths["Gamma"].append(self.Gamma.cpu().numpy())
@@ -184,12 +233,15 @@ class SpSlNormalBayesianFactorGibbs:
         epsilon: float = 1e-10,
     ):
         for k in range(self.num_factor - 1, -1, -1):
-            alpha = (
-                torch.sum(self.Gamma[:, k]).cpu()
-                + self.alpha * (k == (self.num_factor - 1))
-                + epsilon
+            alpha = max(
+                torch.sum(self.Gamma[:, k], dtype=self.float_storage).cpu().item()
+                + self.alpha * (k == (self.num_factor - 1)),
+                epsilon,  # Ensure alpha is at least epsilon
             )
-            beta = torch.sum(self.Gamma[:, k] == 0).cpu() + 1
+            beta = (
+                torch.sum(self.Gamma[:, k] == 0, dtype=self.float_storage).cpu().item()
+                + 1
+            )
 
             if k == 0:
                 a, b = self.Theta[k + 1].cpu(), 1.0
@@ -198,9 +250,12 @@ class SpSlNormalBayesianFactorGibbs:
             else:
                 a, b = self.Theta[k + 1].cpu(), self.Theta[k - 1].cpu()
 
-            self.Theta[k] = truncated_beta()._rvs(alpha=alpha, beta=beta, a=a, b=b)
+            self.Theta[k] = torch.tensor(
+                truncated_beta()._rvs(alpha=alpha, beta=beta, a=a, b=b),
+                device=self.device,
+                dtype=self.float_storage,
+            )
 
-        print(f"Theta:{self.Theta}")
         if store:
             self.paths["Theta"].append(self.Theta)
 
@@ -213,7 +268,9 @@ class SpSlNormalBayesianFactorGibbs:
         squared_errors = torch.sum((self.Y - self.B @ self.Omega) ** 2, dim=1)
         scale = (self.eta * self.epsilon + squared_errors) / 2
         self.Sigma = torch.tensor(
-            invgamma.rvs(a=shape, scale=scale.cpu().numpy()), device=self.device
+            invgamma.rvs(a=shape, scale=scale.cpu().numpy()),
+            dtype=self.float_storage,
+            device=self.device,
         )
 
         if store:
@@ -235,6 +292,13 @@ class SpSlNormalBayesianFactorGibbs:
         n_cols = 5
         n_rows = -(-len(iter_indices) // n_cols)
 
+        first_matrix = (
+            abs(self.paths[str_param][iter_indices[0]])
+            if abs_value
+            else self.paths[str_param][iter_indices[0]]
+        )
+        vmin, vmax = first_matrix.min(), first_matrix.max()
+
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
         axes = axes.flatten()
 
@@ -244,7 +308,7 @@ class SpSlNormalBayesianFactorGibbs:
                 if abs_value
                 else self.paths[str_param][idx]
             )
-            sns.heatmap(matrix, cmap=cmap, cbar=False, ax=ax)
+            sns.heatmap(matrix, cmap=cmap, cbar=False, ax=ax, vmin=vmin, vmax=vmax)
             ax.set_title(f"Iter {idx}")
 
         for ax in axes[len(iter_indices) :]:

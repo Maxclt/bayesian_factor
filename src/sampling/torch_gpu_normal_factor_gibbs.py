@@ -213,8 +213,7 @@ class SpSlNormalBayesianFactorGibbs:
         squared_errors = torch.sum((self.Y - self.B @ self.Omega) ** 2, dim=1)
         scale = (self.eta * self.epsilon + squared_errors) / 2
         self.Sigma = torch.tensor(
-            [invgamma.rvs(a=shape.item(), scale=s.item()) for s in scale],
-            device=self.device,
+            invgamma.rvs(a=shape, scale=scale.cpu().numpy()), device=self.device
         )
 
         if store:

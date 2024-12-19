@@ -44,7 +44,7 @@ def map_estimation(
     """
     d_inf = np.inf
     count = 0
-    B_star_old = torch.zeros(num_var, (num_factors + num_obs)).to(B.device)
+    B_star_old = torch.zeros(num_factors, num_var).to(B.device)
     while d_inf > convergence_criterion:
 
         # E-Step
@@ -53,15 +53,15 @@ def map_estimation(
 
         # M-Step
         ## Set new variables
-        Y_tilde = F.pad(Y, (0, num_factors, 0, 0), mode='constant', value=0) # size (G*(K+n))
+        Y_tilde = F.pad(Y.T, (0, 0, 0, num_factors), mode='constant', value=0) # size ((K+n)*G)
         Omega_tilde = get_Omega_tilde(Omega, M, num_obs)
-        B_star = torch.zeros(num_var, (num_factors + num_obs)).to(B.device)
+        B_star = torch.zeros(num_factors, num_var).to(B.device)
         Theta = torch.zeros(num_factors).to(B.device)
 
         ## Update
         for j in range(num_var):
             beta_j_star = get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, lambda0, lambda1, j)
-            B_star[j,:] = beta_j_star
+            B_star[:, j] = beta_j_star
             sigma_j = get_variance(Y_tilde, Omega_tilde, beta_j_star, num_obs, j)
             Sigma[j] = sigma_j
         
@@ -71,7 +71,7 @@ def map_estimation(
 
         # Rotation Step
         A = get_rotation_matrix(Omega, M, num_obs)
-        B = rotation(B_star, A, num_obs)
+        B = rotation(B_star.T, A)
 
         # Update distance
         d_inf = infinite_norm_distance(B_star, B_star_old)
@@ -81,7 +81,6 @@ def map_estimation(
             break
 
     return B, Sigma, Theta
-
 
 
 
@@ -159,11 +158,11 @@ def get_Omega_tilde(Omega, M, num_obs):
         num_obs (int)
 
     Returns:
-        Omega_tilde (torch.tensor): size (K*(K+n))    
+        Omega_tilde (torch.tensor): size ((K+n)*K)    
     """
     M_L = get_cholesky_factor(M)
-    right = np.sqrt(num_obs) * M_L
-    Omega_tilde = torch.cat((Omega, right), 1)
+    low = np.sqrt(num_obs) * M_L
+    Omega_tilde = torch.cat([Omega.T.unsqueeze(0), low.unsqueeze(0)], dim=1).squeeze()
 
     return Omega_tilde
 
@@ -192,7 +191,6 @@ def get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, lambda0, lambda1, j):
     # Convert PyTorch tensors to NumPy arrays for compatibility with sklearn
     Y_tilde_np = Y_tilde.cpu().numpy()
     Omega_tilde_np = Omega_tilde.cpu().numpy()
-    B_np = B.cpu().numpy()
     Sigma_np = Sigma.cpu().numpy()
     gamma_np = gamma.cpu().numpy()
     
@@ -200,14 +198,17 @@ def get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, lambda0, lambda1, j):
     lambdas = lambda0 * (1 - gamma_np[j, :]) + lambda1 * gamma_np[j, :]
 
     # Define the Lasso regularization parameter for sklearn
-    alpha = 2 * Sigma_np[j] * np.sum(B_np[j, :] *lambdas)
+    # This is an approx because sklearn implementation => ... + alpha*norm(B[j])
+    # and not sum_k^K(abs(B[j,k])*lambda_{jk}
+    alpha = 2 * Sigma_np[j] * np.mean(lambdas)
 
     # Prepare the Lasso regression
     lasso = Lasso(alpha=alpha, fit_intercept=False, max_iter=1000)
 
     # Fit Lasso regression: solve the Lasso problem for this j
-    # TODO: Make sure alpha fits the formula and maybe squeeze Y to fix shape errors
-    lasso.fit(Omega_tilde_np, Y_tilde_np[j].T)
+    # TODO: Im pretty sure the inputs are alright but alpha to high
+    # so it forces beta to 0 which sucks
+    lasso.fit(Omega_tilde_np, Y_tilde_np[:, j])
 
     # Store the result
     beta_j_star = lasso.coef_
@@ -229,7 +230,7 @@ def get_variance(Y_tilde, Omega_tilde, beta_j_star, num_obs, j):
     Returns:
         sigma_j (float)
     """
-    residuals = Y_tilde[j].T - Omega_tilde @ beta_j_star
+    residuals = Y_tilde[:, j] - Omega_tilde @ beta_j_star
     sigma_j = (torch.sum(residuals**2) + 1) / (num_obs + 1)
 
     return sigma_j
@@ -273,24 +274,20 @@ def get_rotation_matrix(Omega, M, num_obs):
     return A
 
 
-def rotation(B_star, A, num_obs):
+def rotation(B_star, A):
     """
     Rotates B_star to get B.
 
     Args:
         B_star (torch.tensor): size (G*(K+n))
         A (torch.tensor): size (K*K)
-        num_obs (int)
 
     Returns:
         B (torch.tensor): size (G*K)
     """
     A_L = get_cholesky_factor(A) # size (K*K)
-    # Don't know if I misunderstood the paper but we need to pad
-    # to have the right dimensions
-    A_L_padded = F.pad(A_L, (0, 0, 0, num_obs), mode='constant', value=0)
 
-    return B_star @ A_L_padded
+    return B_star @ A_L.float()
 
 ######## Convergence criterion
 
@@ -311,10 +308,10 @@ def infinite_norm_distance(A, B):
     # Compute the element-wise absolute difference
     diff = torch.abs(A - B)
 
-    # Compute the row sums
-    row_sums = torch.sum(diff, dim=1)
+    # Compute the col sums
+    col_sums = torch.sum(diff, dim=0)
 
-    # Take the maximum row sum
-    infinite_norm = torch.max(row_sums).item()
+    # Take the maximum col sum
+    infinite_norm = torch.max(col_sums).item()
 
     return infinite_norm

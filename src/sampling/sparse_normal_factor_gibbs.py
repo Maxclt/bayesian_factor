@@ -2,7 +2,6 @@ import torch
 import itertools
 import matplotlib.pyplot as plt
 import seaborn as sns
-import time
 import numpy as np
 
 from tqdm import tqdm
@@ -230,7 +229,7 @@ class SpSlNormalBayesianFactorGibbs:
         self,
         store,
         get: bool = False,
-        epsilon: float = 1e-10,
+        epsilon: float = 1e-15,
     ):
         for k in range(self.num_factor - 1, -1, -1):
             alpha = max(
@@ -316,3 +315,21 @@ class SpSlNormalBayesianFactorGibbs:
 
         plt.tight_layout()
         plt.show()
+
+    def get_trajectory(
+        self, param: str = "B", coeff: tuple = (1, 1), abs_value: bool = True
+    ):
+
+        if param not in self.paths:
+            raise KeyError(f"{param} not found in parameter paths.")
+
+        path = [
+            (
+                np.abs(matrix[coeff[0], coeff[1]])
+                if abs_value
+                else matrix[coeff[0], coeff[1]]
+            )
+            for matrix in self.paths["B"]
+        ]
+
+        return torch.tensor(path)

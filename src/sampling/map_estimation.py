@@ -57,10 +57,11 @@ def map_estimation(
         Omega_tilde = get_Omega_tilde(Omega, M, num_obs)
         B_star = torch.zeros(num_factors, num_var).to(B.device)
         Theta = torch.zeros(num_factors).to(B.device)
+        A = get_rotation_matrix(Omega, M, num_obs)
 
         ## Update
         for j in range(num_var):
-            beta_j_star = get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, lambda0, lambda1, num_factors, j)
+            beta_j_star = get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, A, num_factors, j)
             B_star[:, j] = beta_j_star
             sigma_j = get_variance(Y_tilde, Omega_tilde, beta_j_star, num_obs, j)
             Sigma[j] = sigma_j
@@ -70,13 +71,13 @@ def map_estimation(
             Theta[k] = theta_k
 
         # Rotation Step
-        A = get_rotation_matrix(Omega, M, num_obs)
         B = rotation(B_star.T, A)
 
         # Update distance
         d_inf = infinite_norm_distance(B_star, B_star_old)
         B_star_old = B_star
         count += 1
+        print(B_star.max())
         if count > forced_stop:
             break
 
@@ -166,41 +167,53 @@ def get_Omega_tilde(Omega, M, num_obs):
 
     return Omega_tilde
 
-def get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, lambda0, lambda1, num_factors, j):
+def get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, A, num_factors, j):
     """
-    Computes the updated value of beta_j_star, as the result of a Lasso regression.
+    Computes the updated value of beta_j_star using the iterative update formula.
 
-    beta_j_star = argmax_beta{
-        -norm_2(Y_tilde[:, j] - Omega_tile @ beta) - 2*Sigma[j]*sum_k^K(abs(B[j,k])*lambda_{jk})
-        }
-    where lambda_{jk} = lambda_0*(1 - gamma[j,k]) + lambda_1*gamma[j,k]
+    beta_j_star = (|z| - sigma_j * lambda_jk (A_L^-1) / n) * sign(z) - z_k+
 
     Args:
-        Y_tilde (torch.tensor): size (G*(K+n))
-        Omega_tilde (torch.tensor): size (K*(K+n)) 
+        Y_tilde (torch.tensor): size ((K+n)*G)
+        Omega_tilde (torch.tensor): size ((K+n)*K) 
         B (torch.tensor): size (G*K)
         Sigma (torch.tensor): size (G)
         gamma (torch.tensor): size (G*K)
-        lambda0 (float)
-        lambda1 (float)
+        A (torch.tensor): size (K*K)
         num_factors (int): K
         j (int)
 
     Returns:
         beta_j_star (torch.tensor): size(K)
     """
-    # OLS estimator
-    beta_ols = torch.linalg.inv(Omega_tilde.T @ Omega_tilde) @ Omega_tilde.T @ Y_tilde[:, j]
+    # Extract relevant parameters
     sigma_j = Sigma[j]
-    lambda_j = gamma[j]
+    lambda_j = gamma[j]  # shape: (K,)
 
+    # Compute z_j
+    A_L = get_cholesky_factor(A)
+    A_L_inv = torch.linalg.inv(A_L)  # Inverse of A_L
+    z_j = (A_L_inv @ Omega_tilde.T @ Y_tilde[:, j]) / Y_tilde.size(1)  # Normalize by n (number of observations)
+
+    # Initialize beta_j_star
     beta_j_star = torch.zeros(num_factors).to(B.device)
 
-    # For each coordinates we have an explicit solution
+    # Compute beta_j_star for each factor
     for k in range(num_factors):
-        beta_j_star[k] = torch.sign(beta_ols[k])*max(0, torch.abs(beta_ols[k]) - sigma_j*lambda_j[k])
-    
+        # Compute z_k+ (contribution of the other factors)
+        z_k_plus = torch.sum(
+            (A_L_inv[k + 1:, k] / A_L_inv[k, k]) * B[j, k + 1:num_factors]
+        ) if k + 1 < num_factors else 0
+
+        # Update beta_j_star[k]
+        z = z_j[k]+z_k_plus
+        beta_j_star[k] = (
+            torch.sign(z)
+            * max(0, torch.abs(z) - sigma_j * lambda_j[k] * A_L_inv[k, k] / Y_tilde.size(1))
+        ) - z_k_plus
+
     return beta_j_star.to(torch.float64)
+
 
 
 def get_variance(Y_tilde, Omega_tilde, beta_j_star, num_obs, j):

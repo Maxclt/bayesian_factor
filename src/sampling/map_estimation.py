@@ -51,7 +51,7 @@ def map_estimation(
         Omega, M = get_latent_features(B, Sigma, Y, num_factors)
         gamma = get_latent_indicators(B, Theta, lambda0, lambda1, epsilon)
 
-        # M-Step
+        # M-Stepbeta
         ## Set new variables
         Y_tilde = F.pad(Y.T, (0, 0, 0, num_factors), mode='constant', value=0) # size ((K+n)*G)
         Omega_tilde = get_Omega_tilde(Omega, M, num_obs)
@@ -60,7 +60,7 @@ def map_estimation(
 
         ## Update
         for j in range(num_var):
-            beta_j_star = get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, lambda0, lambda1, j)
+            beta_j_star = get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, lambda0, lambda1, num_factors, j)
             B_star[:, j] = beta_j_star
             sigma_j = get_variance(Y_tilde, Omega_tilde, beta_j_star, num_obs, j)
             Sigma[j] = sigma_j
@@ -144,7 +144,7 @@ def get_cholesky_factor(matrix: torch.Tensor) -> torch.Tensor:
         raise ValueError("Input matrix must be square.")
     
     # Compute the Cholesky decomposition
-    cholesky_factor = torch.cholesky(matrix)
+    cholesky_factor = torch.linalg.cholesky(matrix)
     
     return cholesky_factor
 
@@ -166,12 +166,12 @@ def get_Omega_tilde(Omega, M, num_obs):
 
     return Omega_tilde
 
-def get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, lambda0, lambda1, j):
+def get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, lambda0, lambda1, num_factors, j):
     """
     Computes the updated value of beta_j_star, as the result of a Lasso regression.
 
     beta_j_star = argmax_beta{
-        -norm_2(Y_tilde[j].T - Omega_tile @ beta) - 2*Sigma[j]*sum_k^K(abs(B[j,k])*lambda_{jk})
+        -norm_2(Y_tilde[:, j] - Omega_tile @ beta) - 2*Sigma[j]*sum_k^K(abs(B[j,k])*lambda_{jk})
         }
     where lambda_{jk} = lambda_0*(1 - gamma[j,k]) + lambda_1*gamma[j,k]
 
@@ -183,47 +183,34 @@ def get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, lambda0, lambda1, j):
         gamma (torch.tensor): size (G*K)
         lambda0 (float)
         lambda1 (float)
+        num_factors (int): K
         j (int)
 
     Returns:
-        beta_j_star (torch.tensor): size(K+n)
+        beta_j_star (torch.tensor): size(K)
     """
-    # Convert PyTorch tensors to NumPy arrays for compatibility with sklearn
-    Y_tilde_np = Y_tilde.cpu().numpy()
-    Omega_tilde_np = Omega_tilde.cpu().numpy()
-    Sigma_np = Sigma.cpu().numpy()
-    gamma_np = gamma.cpu().numpy()
+    # OLS estimator
+    beta_ols = torch.linalg.inv(Omega_tilde.T @ Omega_tilde) @ Omega_tilde.T @ Y_tilde[:, j]
+    sigma_j = Sigma[j]
+    lambda_j = gamma[j]
+
+    beta_j_star = torch.zeros(num_factors).to(B.device)
+
+    # For each coordinates we have an explicit solution
+    for k in range(num_factors):
+        beta_j_star[k] = torch.sign(beta_ols[k])*max(0, torch.abs(beta_ols[k]) - sigma_j*lambda_j[k])
     
-    # Compute lambda_{jk} for the current j
-    lambdas = lambda0 * (1 - gamma_np[j, :]) + lambda1 * gamma_np[j, :]
+    return beta_j_star.to(torch.float64)
 
-    # Define the Lasso regularization parameter for sklearn
-    # This is an approx because sklearn implementation => ... + alpha*norm(B[j])
-    # and not sum_k^K(abs(B[j,k])*lambda_{jk}
-    alpha = 2 * Sigma_np[j] * np.mean(lambdas)
-
-    # Prepare the Lasso regression
-    lasso = Lasso(alpha=alpha, fit_intercept=False, max_iter=1000)
-
-    # Fit Lasso regression: solve the Lasso problem for this j
-    # TODO: Im pretty sure the inputs are alright but alpha to high
-    # so it forces beta to 0 which sucks
-    lasso.fit(Omega_tilde_np, Y_tilde_np[:, j])
-
-    # Store the result
-    beta_j_star = lasso.coef_
-
-    # Convert the result back to a PyTorch tensor
-    return torch.tensor(beta_j_star)
 
 def get_variance(Y_tilde, Omega_tilde, beta_j_star, num_obs, j):
     """
     Update the jth diagonal coefficient of Sigma.
 
     Args:
-        Y_tilde (torch.tensor): size (G*(K+n))
-        Omega_tilde (torch.tensor): size (K*(K+n))
-        beta_j_star (torch.tensor): size(K+n)
+        Y_tilde (torch.tensor): size ((K+n)*G)
+        Omega_tilde (torch.tensor): size ((K+n)*K)
+        beta_j_star (torch.tensor): size(K)
         num_obs (int)
         j (int)
 
@@ -287,7 +274,7 @@ def rotation(B_star, A):
     """
     A_L = get_cholesky_factor(A) # size (K*K)
 
-    return B_star @ A_L.float()
+    return B_star.to(torch.float64) @ A_L.to(torch.float64)
 
 ######## Convergence criterion
 

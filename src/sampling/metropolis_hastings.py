@@ -2,7 +2,10 @@ import numpy as np
 
 
 def metropolis_hastings(
-    target_pdf: function, proposal_sampler: function, initial_state: float, burn_in: int
+    target_pdf: function,
+    proposal_sampler: function,
+    initial_state: float,
+    burn_in: int = 100,
 ) -> float:
     """Perform Metropolis-Hastings sampling.
 
@@ -10,7 +13,7 @@ def metropolis_hastings(
         target_pdf (function): _description_
         proposal_sampler (function): _description_
         initial_state (float): _description_
-        burn_in (int): _description_
+        burn_in (int, optional): _description_. Defaults to 100.
 
     Returns:
         float: _description_

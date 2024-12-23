@@ -18,7 +18,7 @@ class SpSlNormalFactorGibbs(SpSlFactorGibbs):
         super().__init__(*args, **kwargs)
 
     def sample_factors(self):
-        """Sample the latent factor matrix `Omega`."""
+        """Sample the latent factor matrix `Omega` of shape ()."""
         precision = (
             np.eye(self.num_factor, dtype=self.dtype)
             + self.B.T @ np.diag(1 / self.Sigma) @ self.B

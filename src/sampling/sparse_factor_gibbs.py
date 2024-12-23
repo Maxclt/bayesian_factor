@@ -1,8 +1,8 @@
-import torch
 import itertools
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+import json
 
 from tqdm import tqdm
 from joblib import Parallel, delayed
@@ -16,88 +16,69 @@ def simulate_loading(args):
     return trunc_norm_mixture(mu_pos=mu_pos, mu_neg=mu_neg, sigma=sigma).rvs()
 
 
-def parallelized_loading(
-    mu_pos, mu_neg, sigma, num_var, num_factor, device, float_storage
-):
+def parallelized_loading(mu_pos, mu_neg, sigma, num_var, num_factor, dtype):
     indices = itertools.product(range(num_var), range(num_factor))
-    args = [
-        (mu_pos[j, k].item(), mu_neg[j, k].item(), sigma[j, k].item())
-        for j, k in indices
-    ]
+    args = [(mu_pos[j, k], mu_neg[j, k], sigma[j, k]) for j, k in indices]
     # Use Joblib for parallel execution
     samples = Parallel(n_jobs=-1)(delayed(simulate_loading)(arg) for arg in args)
 
     # Reshape the output
-    B = torch.tensor(np.array(samples), dtype=float_storage, device=device).reshape(
-        num_var, num_factor
-    )  # work on reshape
+    B = np.array(samples, dtype=dtype).reshape(num_var, num_factor)  # work on reshape
     return B
 
 
 class SpSlFactorGibbs:
+
     def __init__(
         self,
-        Y: torch.Tensor,
-        B: torch.Tensor,
-        Sigma: torch.Tensor,
-        Gamma: torch.Tensor,
-        Theta: torch.Tensor,
+        Y: np.ndarray,
+        B: np.ndarray,
+        Sigma: np.ndarray,
+        Gamma: np.ndarray,
+        Theta: np.ndarray,
         alpha: float,
         eta: float,
         epsilon: float,
         lambda0: float,
         lambda1: float,
         burn_in: int = 50,
-        device: str = "cuda",
+        dtype=np.float64,
     ):
         """Initialize the Bayesian Factor Gibbs Sampler.
 
         Args:
-            Y (torch.Tensor): Observed Data (G x n)
-            B (torch.Tensor): _description_
-            Sigma (torch.Tensor): _description_
-            Gamma (torch.Tensor): _description_
-            Theta (torch.Tensor): _description_
+            Y (np.ndarray): Observed Data Matrix (G x n).
+            B (np.ndarray): Factor Loadings Matrix (G x K).
+            Sigma (np.ndarray): Covariance Matrix (G x G).
+            Gamma (np.ndarray): Feature Sparsity Matrix (K x 1).
+            Theta (np.ndarray): Feature Allocation Matrix (G x K).
             alpha (float): _description_
             eta (float): _description_
             epsilon (float): _description_
             lambda0 (float): _description_
             lambda1 (float): _description_
             burn_in (int, optional): _description_. Defaults to 50.
-            fast (bool, optional): _description_. Defaults to True.
-            device (str, optional): _description_. Defaults to "cuda".
+            dtype (): Defaults to np.float64.
         """
-        # Move to GPU if available, "mps" for Mac, "cuda" for Windows
-        if device == "mps":
-            available = torch.backends.mps.is_available()
-            self.float_storage = torch.float32
-        elif device == "cuda":
-            available = torch.cuda.is_available()
-            self.float_storage = torch.float64
-        elif device == "cpu":
-            available = True
-            self.float_storage = torch.float64
-        else:
-            return KeyError("device should be either 'mps' or 'cuda'")
-        self.device = torch.device(device if available else "cpu")
+        # Dtype
+        self.dtype = dtype
 
         # Data
-        self.Y = Y.to(self.device, dtype=self.float_storage)
+        self.Y = Y.astype(self.dtype)
 
         # Shapes
         self.num_var, self.num_obs = Y.shape
         self.num_factor = B.shape[1]
 
         # Parameters
-        self.B = B.to(self.device, dtype=self.float_storage)
-        self.Omega = torch.zeros(
+        self.B = B.astype(self.dtype)
+        self.Omega = np.zeros(
             (self.num_factor, self.num_obs),
-            device=self.device,
-            dtype=self.float_storage,
+            dtype=self.dtype,
         )
-        self.Sigma = Sigma.to(self.device, dtype=self.float_storage)
-        self.Gamma = Gamma.to(self.device, dtype=self.float_storage)
-        self.Theta = Theta.to(self.device, dtype=self.float_storage)
+        self.Sigma = Sigma.astype(self.dtype)
+        self.Gamma = Gamma.astype(np.int32)
+        self.Theta = Theta.astype(self.dtype)
 
         # Hyperparameters
         self.alpha = alpha
@@ -111,28 +92,49 @@ class SpSlFactorGibbs:
         self.num_iters = burn_in
 
         # Trajectories for tracking parameters
-        self.paths = {
-            "B": [self.B.cpu().numpy()],
-            "Omega": [self.Omega.cpu().numpy()],
-            "Sigma": [self.Sigma.cpu().numpy()],
-            "Gamma": [self.Gamma.cpu().numpy()],
-            "Theta": [self.Theta.cpu().numpy()],
+        self.paths = {}
+        self.paths["init"] = {
+            "B": self.B,
+            "Omega": self.Omega,
+            "Sigma": self.Sigma,
+            "Gamma": self.Gamma,
+            "Theta": self.Theta,  # TODO modify plot accordingly
         }
 
     def perform_gibbs(
-        self, iterations: int = None, store: bool = True, plot: bool = True
+        self,
+        iterations: int = None,
+        store: bool = True,
+        plot: bool = True,
+        file_path: str = None,
     ):
-        """Perform Gibbs sampling for the specified number of iterations."""
+        """Perform Gibbs sampling for the specified number of iterations.
+
+        Args:
+            iterations (int, optional): Number of iterations of the gibbs sampler. Defaults to None.
+            store (bool, optional): Boolean to store or not the parameters. Defaults to True.
+            plot (bool, optional): Boolean to plot or not. Defaults to True.
+            file_path (str, optional): File path for storaga. Defaults to None.
+        """
         if iterations:
             self.num_iters = iterations
 
         with tqdm(total=self.num_iters, desc="Gibbs Sampling", unit="iter") as pbar:
             for i in range(self.num_iters):
-                self.sample_factors(store=store)
-                self.sample_features_allocation(store=store)
-                self.sample_features_sparsity(store=store)
-                self.sample_loadings(store=store)
-                self.sample_diag_covariance(store=store)
+                self.sample_factors()
+                self.sample_features_allocation()
+                self.sample_features_sparsity()
+                self.sample_loadings()
+                self.sample_diag_covariance()
+
+                if store:
+                    self.paths[i] = {
+                        "B": self.B,
+                        "Omega": self.Omega,
+                        "Sigma": self.Sigma,
+                        "Gamma": self.Gamma,
+                        "Theta": self.Theta,
+                    }
 
                 # Update the progress bar
                 pbar.update(1)
@@ -143,33 +145,38 @@ class SpSlFactorGibbs:
         if plot:
             self.plot_heatmaps()
 
-    def sample_loadings(self, store: bool = True):
+        if file_path is not None:
+            with open(file_path, "w") as json_file:
+                json.dump(self.paths, json_file)
+
+    def sample_loadings(self):
         """Vectorized sampling of the loading matrix `B`."""
         # Compute a
-        a = torch.einsum("ki,j->jk", self.Omega**2, 1 / (2 * self.Sigma))
+        a = np.einsum("ki,j->jk", self.Omega**2, 1 / (2 * self.Sigma), dtype=self.dtype)
 
         # Compute b
-        mask = 1 - torch.eye(
-            self.num_factor, device=self.device, dtype=self.float_storage
-        )
-        excluded_sum = torch.einsum(
-            "jl,li,lk->jik", self.B, self.Omega, mask
+        mask = 1 - np.eye(self.num_factor, dtype=self.dtype)
+        excluded_sum = np.einsum(
+            "jl,li,lk->jik", self.B, self.Omega, mask, dtype=self.dtype
         )  # Shape (n,G)
-        b = torch.einsum(
+        Y_expanded = np.expand_dims(self.Y, axis=2)  # Shape: (j, i, 1)
+        Y_repeated = np.tile(Y_expanded, (1, 1, self.num_factor))
+        b = np.einsum(
             "ki, jik -> jk",
             self.Omega,
-            self.Y.unsqueeze(2).repeat(1, 1, self.num_factor) - excluded_sum,
-        ) / (self.Sigma).unsqueeze(
-            1
-        )  # should be about 2a but too large, problem
+            Y_repeated - excluded_sum,
+            dtype=self.dtype,
+        ) / np.expand_dims(
+            self.Sigma, axis=1
+        )  # should be about 2a but too large, problem Check
 
         # Compute c
         c = self.lambda1 * self.Gamma + self.lambda0 * (1 - self.Gamma)
 
         # Vectorized sampling from truncated normal mixture
-        mu_pos = ((b - c) / (2 * a)).cpu()
-        mu_neg = ((b + c) / (2 * a)).cpu()
-        sigma = torch.sqrt(1 / (2 * a)).cpu()
+        mu_pos = (b - c) / (2 * a)
+        mu_neg = (b + c) / (2 * a)
+        sigma = np.sqrt(1 / (2 * a))
 
         # Simulate samples using CPU for now (replace with GPU-adapted truncated sampler if available)
         self.B = parallelized_loading(
@@ -178,47 +185,35 @@ class SpSlFactorGibbs:
             sigma=sigma,
             num_var=self.num_var,
             num_factor=self.num_factor,
-            device=self.device,
-            float_storage=self.float_storage,
+            dtype=self.dtype,
         )  # parallelize and assess what is slow
 
-        if store:
-            self.paths["B"].append(self.B.cpu().numpy())
-
-    def sample_features_allocation(self, store: bool = True, epsilon: float = 1e-10):
+    def sample_features_allocation(self, epsilon: float = 1e-10):
         """Sample the feature allocation matrix `Gamma`."""
-        p = (
-            self.lambda1 * torch.exp(-self.lambda1 * torch.abs(self.B)) * self.Theta
-        ) / (
-            self.lambda0
-            * torch.exp(-self.lambda0 * torch.abs(self.B))
-            * (1 - self.Theta)
-            + self.lambda1 * torch.exp(-self.lambda1 * torch.abs(self.B)) * self.Theta
-            + epsilon
+        denominator = max(
+            self.lambda0 * np.exp(-self.lambda0 * np.abs(self.B)) * (1 - self.Theta)
+            + self.lambda1 * np.exp(-self.lambda1 * np.abs(self.B)) * self.Theta,
+            epsilon,
         )
-        self.Gamma = torch.bernoulli(p)
+
+        p = (
+            self.lambda1 * np.exp(-self.lambda1 * np.abs(self.B)) * self.Theta
+        ) / denominator
+
+        self.Gamma = bernoulli(p).rvs()
 
         self.p = p
 
-        if store:
-            self.paths["Gamma"].append(self.Gamma.cpu().numpy())
-
     def sample_features_sparsity(
         self,
-        store,
-        get: bool = False,
         epsilon: float = 1e-15,
     ):
         for k in range(self.num_factor - 1, -1, -1):
             alpha = max(
-                torch.sum(self.Gamma[:, k], dtype=self.float_storage).cpu().item()
-                + self.alpha * (k == (self.num_factor - 1)),
+                np.sum(self.Gamma[:, k]) + self.alpha * (k == (self.num_factor - 1)),
                 epsilon,  # Ensure alpha is at least epsilon
             )
-            beta = (
-                torch.sum(self.Gamma[:, k] == 0, dtype=self.float_storage).cpu().item()
-                + 1
-            )
+            beta = np.sum(self.Gamma[:, k] == 0) + 1
 
             if k == 0:
                 a, b = self.Theta[k + 1].cpu(), 1.0
@@ -227,31 +222,17 @@ class SpSlFactorGibbs:
             else:
                 a, b = self.Theta[k + 1].cpu(), self.Theta[k - 1].cpu()
 
-            self.Theta[k] = torch.tensor(
-                truncated_beta()._rvs(alpha=alpha, beta=beta, a=a, b=b),
-                device=self.device,
-                dtype=self.float_storage,
-            )
+            self.Theta[k] = truncated_beta()._rvs(alpha=alpha, beta=beta, a=a, b=b)
 
-        if store:
-            self.paths["Theta"].append(self.Theta)
-
-        if get:
-            return self.Theta
-
-    def sample_diag_covariance(self, store: bool = True):
+    def sample_diag_covariance(self):
         """Sample the diagonal covariance matrix `Sigma`."""
         shape = (self.eta + self.num_obs) / 2
-        squared_errors = torch.sum((self.Y - self.B @ self.Omega) ** 2, dim=1)
+        squared_errors = np.sum((self.Y - self.B @ self.Omega) ** 2, axis=1)
         scale = (self.eta * self.epsilon + squared_errors) / 2
-        self.Sigma = torch.tensor(
-            invgamma.rvs(a=shape, scale=scale.cpu().numpy()),
-            dtype=self.float_storage,
-            device=self.device,
+        self.Sigma = np.array(
+            invgamma.rvs(a=shape, scale=scale),
+            dtype=self.dtype,
         )
-
-        if store:
-            self.paths["Sigma"].append(self.Sigma.cpu().numpy())
 
     def plot_heatmaps(
         self, str_param: str = "B", abs_value: bool = True, cmap: str = "viridis"
@@ -260,11 +241,11 @@ class SpSlFactorGibbs:
         if str_param not in self.paths:
             raise KeyError(f"{str_param} not found in parameter paths.")
 
-        iter_indices = torch.logspace(
+        iter_indices = np.logspace(
             0,
-            torch.log10(torch.tensor(self.num_iters, dtype=torch.float)),
+            np.log10(np.array(self.num_iters, dtype=np.float64)),
             steps=min(10, self.num_iters),
-            dtype=torch.int,
+            dtype=np.int64,
         )
         n_cols = 5
         n_rows = -(-len(iter_indices) // n_cols)
@@ -293,21 +274,3 @@ class SpSlFactorGibbs:
 
         plt.tight_layout()
         plt.show()
-
-    def get_trajectory(
-        self, param: str = "B", coeff: tuple = (1, 1), abs_value: bool = True
-    ):
-
-        if param not in self.paths:
-            raise KeyError(f"{param} not found in parameter paths.")
-
-        path = [
-            (
-                np.abs(matrix[coeff[0], coeff[1]])
-                if abs_value
-                else matrix[coeff[0], coeff[1]]
-            )
-            for matrix in self.paths["B"]
-        ]
-
-        return torch.tensor(path)

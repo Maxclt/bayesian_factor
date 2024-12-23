@@ -1,4 +1,3 @@
-import torch
 import numpy as np
 
 from src.sampling.sparse_factor_gibbs import SpSlFactorGibbs

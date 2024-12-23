@@ -1,4 +1,6 @@
-import torch
+import numpy as np
+
+from scipy.stats import multivariate_normal
 
 from src.sampling.sparse_factor_gibbs import SpSlFactorGibbs
 
@@ -15,24 +17,19 @@ class SpSlNormalFactorGibbs(SpSlFactorGibbs):
         """
         super().__init__(*args, **kwargs)
 
-    def sample_factors(self, store: bool = True):
+    def sample_factors(self):
         """Sample the latent factor matrix `Omega`."""
         precision = (
-            torch.eye(self.num_factor, device=self.device)
-            + self.B.T @ torch.diag(1 / self.Sigma) @ self.B
+            np.eye(self.num_factor, dtype=self.dtype)
+            + self.B.T @ np.diag(1 / self.Sigma) @ self.B
         )
-        cov = torch.linalg.inv(precision)
+        cov = np.linalg.inv(precision)
         cov = (cov + cov.T) / 2
-        mean = (cov @ self.B.T @ torch.diag(1 / self.Sigma) @ self.Y).cpu()
-        self.Omega = torch.stack(
+        mean = cov @ self.B.T @ np.diag(1 / self.Sigma) @ self.Y
+        self.Omega = np.stack(
             [
-                torch.distributions.MultivariateNormal(
-                    mean[:, i], covariance_matrix=cov.cpu()
-                ).sample()
+                multivariate_normal(mean[:, i], covariance_matrix=cov).rvs()
                 for i in range(self.num_obs)
             ],
-            dim=1,
-        ).to(device=self.device, dtype=self.float_storage)
-
-        if store:
-            self.paths["Omega"].append(self.Omega.cpu().numpy())
+            axis=1,
+        ).astype(dtype=self.dtype)

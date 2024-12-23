@@ -17,6 +17,7 @@ seaborn = "^0.13.2"
 joblib = "^1.4.2"
 torch = "^2.5.1"
 tqdm = "^4.67.1"
+black = "^24.10.0"
 
 
 [tool.poetry.group.dev.dependencies]

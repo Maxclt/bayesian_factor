@@ -1,10 +1,10 @@
-import torch
+import numpy as np
 
 
 def create_true_loadings(
     num_factors, num_variables, block_size, overlap, random=False, mean=1, std=5
 ):
-    B = torch.zeros((num_variables, num_factors))
+    B = np.zeros((num_variables, num_factors))
     block_gap = block_size - overlap
 
     start_rows = 0
@@ -13,7 +13,7 @@ def create_true_loadings(
     while start_rows + block_size <= num_variables and col < num_factors:
         end_row = min(start_rows + block_size, num_variables)
         if random:
-            B[start_rows:end_row, col] = torch.rand(
+            B[start_rows:end_row, col] = np.random.normal(
                 loc=mean, scale=std, size=(end_row - start_rows)
             )
         else:

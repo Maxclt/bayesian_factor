@@ -11,13 +11,14 @@ class SpSlNormalFactorGibbs(SpSlFactorGibbs):
     """
 
     def __init__(self, *args, **kwargs):
-        """
-        Args:
-            - Inherits all arguments from SpSlNormalBayesianFactorGibbs
-        """
         super().__init__(*args, **kwargs)
 
-    def sample_factors(self):
+    def initialize_factors(self):
+        self.Omega = np.random.normal(size=(self.num_obs, self.num_obs)).astype(
+            self.dtype
+        )
+
+    def sample_factors(self, epsilon: float = 1e-10):
         """Sample the latent factor matrix `Omega` of shape ()."""
         precision = (
             np.eye(self.num_factor, dtype=self.dtype)
@@ -28,7 +29,7 @@ class SpSlNormalFactorGibbs(SpSlFactorGibbs):
         mean = cov @ self.B.T @ np.diag(1 / self.Sigma) @ self.Y
         self.Omega = np.stack(
             [
-                multivariate_normal(mean[:, i], covariance_matrix=cov).rvs()
+                multivariate_normal(mean=mean[:, i], cov=cov).rvs()
                 for i in range(self.num_obs)
             ],
             axis=1,

@@ -1,9 +1,7 @@
-import torch
+import numpy as np
 
 from src.simulations.normal_bayesian_factor_dgp import NormalBayesianFactorDGP
-from src.sampling.sparse_factor_gibbs import (
-    SpSlNormalBayesianFactorGibbs,
-)
+from src.sampling.normal_factor_gibbs import SpSlNormalFactorGibbs
 from src.utils.setup.create_true_loadings import create_true_loadings
 
 # TODO modify this to have the possibility to set the parameter when running the file
@@ -42,7 +40,7 @@ BTrue = create_true_loadings(
     std=std,
 )
 
-SigmaTrue = torch.ones(
+SigmaTrue = np.ones(
     num_variables
 )  # TODO define a function to create_true_covariance either random or not
 
@@ -54,7 +52,7 @@ Gamma0 = create_true_loadings(
     overlap=overlap,
 )
 
-Theta0 = torch.full((num_factors,), 0.5)
+Theta0 = np.full((num_factors,), 0.5)
 
 # Simulated Value for Y
 DataGeneratingProcess = NormalBayesianFactorDGP(B=BTrue, Sigma=SigmaTrue)
@@ -65,7 +63,7 @@ Y_sim = DataGeneratingProcess.simulate(size=num_sim)
 if __name__ == "__main__":
 
     # Initiate Bayesian Normal Factor Gibbs Sampler
-    SparseGibbsSampling = SpSlNormalBayesianFactorGibbs(
+    SparseGibbsSampling = SpSlNormalFactorGibbs(
         Y=Y_sim,
         B=BTrue,
         Sigma=SigmaTrue,
@@ -76,8 +74,7 @@ if __name__ == "__main__":
         epsilon=epsilon,
         lambda0=lambda0,
         lambda1=lambda1,
-        device="cpu",  # You can change it to "cuda" if running on GPU
     )
 
     # Perform Gibbs Sampler for posterior
-    SparseGibbsSampling.perform_gibbs_sampling(iterations=100)
+    SparseGibbsSampling.perform_gibbs(iterations=100)

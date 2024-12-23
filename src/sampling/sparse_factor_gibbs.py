@@ -7,6 +7,7 @@ import json
 from tqdm import tqdm
 from joblib import Parallel, delayed
 from scipy.stats import bernoulli, invgamma
+from abc import ABC, abstractmethod
 
 from src.utils.probability.density import truncated_beta, trunc_norm_mixture
 
@@ -27,7 +28,7 @@ def parallelized_loading(mu_pos, mu_neg, sigma, num_var, num_factor, dtype):
     return B
 
 
-class SpSlFactorGibbs:
+class SpSlFactorGibbs(ABC):
 
     def __init__(
         self,
@@ -72,10 +73,7 @@ class SpSlFactorGibbs:
 
         # Parameters
         self.B = B.astype(self.dtype)
-        self.Omega = np.zeros(
-            (self.num_factor, self.num_obs),
-            dtype=self.dtype,
-        )
+        self.Omega = self.initialize_factors()
         self.Sigma = Sigma.astype(self.dtype)
         self.Gamma = Gamma.astype(np.int32)
         self.Theta = Theta.astype(self.dtype)
@@ -100,6 +98,14 @@ class SpSlFactorGibbs:
             "Gamma": self.Gamma,
             "Theta": self.Theta,  # TODO modify plot accordingly
         }
+
+    @abstractmethod
+    def initialize_factors(self, epsilon: float = 1e-10):
+        pass
+
+    @abstractmethod
+    def sample_factors(self):
+        pass
 
     def perform_gibbs(
         self,
@@ -190,7 +196,7 @@ class SpSlFactorGibbs:
 
     def sample_features_allocation(self, epsilon: float = 1e-10):
         """Sample the feature allocation matrix `Gamma`."""
-        denominator = max(
+        denominator = np.maximum(
             self.lambda0 * np.exp(-self.lambda0 * np.abs(self.B)) * (1 - self.Theta)
             + self.lambda1 * np.exp(-self.lambda1 * np.abs(self.B)) * self.Theta,
             epsilon,
@@ -216,11 +222,11 @@ class SpSlFactorGibbs:
             beta = np.sum(self.Gamma[:, k] == 0) + 1
 
             if k == 0:
-                a, b = self.Theta[k + 1].cpu(), 1.0
+                a, b = self.Theta[k + 1], 1.0
             elif k == (self.num_factor - 1):
-                a, b = 0.0, self.Theta[k - 1].cpu()
+                a, b = 0.0, self.Theta[k - 1]
             else:
-                a, b = self.Theta[k + 1].cpu(), self.Theta[k - 1].cpu()
+                a, b = self.Theta[k + 1], self.Theta[k - 1]
 
             self.Theta[k] = truncated_beta()._rvs(alpha=alpha, beta=beta, a=a, b=b)
 
@@ -238,22 +244,23 @@ class SpSlFactorGibbs:
         self, str_param: str = "B", abs_value: bool = True, cmap: str = "viridis"
     ):
         """Plot heatmaps of parameter trajectories."""
-        if str_param not in self.paths:
+        if str_param not in self.paths["init"]:
             raise KeyError(f"{str_param} not found in parameter paths.")
 
         iter_indices = np.logspace(
             0,
             np.log10(np.array(self.num_iters, dtype=np.float64)),
-            steps=min(10, self.num_iters),
+            num=min(10, self.num_iters),
             dtype=np.int64,
         )
+        iter_indices = list(dict.fromkeys(iter_indices))
         n_cols = 5
         n_rows = -(-len(iter_indices) // n_cols)
 
         first_matrix = (
-            abs(self.paths[str_param][iter_indices[0]])
+            abs(self.paths["init"][str_param])
             if abs_value
-            else self.paths[str_param][iter_indices[0]]
+            else self.paths["init"][str_param]
         )
         vmin, vmax = first_matrix.min(), first_matrix.max()
 
@@ -262,9 +269,9 @@ class SpSlFactorGibbs:
 
         for idx, ax in zip(iter_indices, axes):
             matrix = (
-                abs(self.paths[str_param][idx])
+                abs(self.paths[idx - 1][str_param])
                 if abs_value
-                else self.paths[str_param][idx]
+                else self.paths[idx - 1][str_param]
             )
             sns.heatmap(matrix, cmap=cmap, cbar=False, ax=ax, vmin=vmin, vmax=vmax)
             ax.set_title(f"Iter {idx}")

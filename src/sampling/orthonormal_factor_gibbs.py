@@ -2,6 +2,7 @@ import numpy as np
 
 from typing import Tuple
 from scipy.stats import norm
+from joblib import Parallel, delayed
 
 from src.sampling.sparse_factor_gibbs import SpSlFactorGibbs
 from src.sampling.metropolis_hastings import metropolis_hastings
@@ -17,44 +18,38 @@ class OrthonormalFactorGibbs(SpSlFactorGibbs):
     def __init__(self, *args, **kwargs):
         super().__init__(self, *args, **kwargs)
 
-        # Initialize Omega
-        self.initialize_orthonormal_factors()
-
-    def initialize_orthonormal_factors(self):
+    def initialize_factors(self):
         """
         Initialize an num_factors * num_obs matrix Omega on the sqrt(num_obs)-radius Stiefel manifold.
         """
         # Get Haar distributed num_obs * num_obs orthogonal matrix
-        Q, _ = np.linalg.qr(np.random.normal(size=(self.num_obs, self.num_obs)))
+        Q, _ = np.linalg.qr(
+            np.random.normal(size=(self.num_obs, self.num_obs)).astype(self.dtype)
+        )
         # Keep only num_factors first rows
         self.Omega = Q[: self.num_factor, :] * np.sqrt(self.num_obs)
 
-    def sample_factors(
-        self, store, get: bool = False, epsilon: float = 1e-10
-    ):  # TODO parallelize for k
-        new_Omega = np.zeros_like(self.Omega)  # Will update the rows at the end
-        for k in range(self.num_factor):
-            B_k = self.B[:, k]
+    def sample_factors(self, epsilon: float = 1e-10):  # TODO parallelize for k
 
+        def process_k(k):
             mean, var = self.compute_Omega_moments(k)
-
-            # Sample d using Metropolis algorithm
             d = self.sample_d_metropolis(k, mean, var)
-
-            # Sample from sphere S_d
             Omega_k = self.sample_from_sphere(d, mean, epsilon)
+            return k, Omega_k
 
-            # Update Omega_k
+        # Parallel computation using joblib
+        results = Parallel(n_jobs=-1)(
+            delayed(process_k)(k) for k in range(self.num_factor)
+        )
+
+        # Initialize new Omega
+        new_Omega = np.zeros_like(self.Omega, dtype=self.dtype)
+
+        # Update Omega with results
+        for k, Omega_k in results:
             new_Omega[k, :] = Omega_k
 
-        # Update Omega
         self.Omega = new_Omega
-
-        # Store sampled Omega
-        if store:
-            self.paths["Omega"].append(self.Omega)
-        if get:
-            return self.Omega
 
     def compute_Omega_moments(
         self, k: int, epsilon: float = 1e-10
@@ -102,20 +97,20 @@ class OrthonormalFactorGibbs(SpSlFactorGibbs):
             target_pdf=target_pdf, proposal_sampler=proposal_sampler, initial_state=d
         )
 
-    def sample_from_sphere(self, d, bar_Omega_k, epsilon: float = 1e-10):
+    def sample_from_sphere(self, d, mean, epsilon: float = 1e-10):
         """
         First sample from the sphere in the plane orthogonal to the last vector
         of the base. Then translate it into the plane orthogonal to
-        bar_Omega_k
+        mean
         """
         # Generate n-1 samples from N(0, 1)
-        X = np.random.randn(self.num_obs - 1)
+        X = np.random.randn(self.num_obs - 1).astype(self.dtype)
         # Normalize to lie on the sphere of radius sqrt(num_obs)
         lambda_ = np.linalg.norm(X)
         X_prime = np.sqrt(self.num_obs) * X / lambda_
-        # Translate to land in the orthogonal plane to bar_Omega_k
+        # Translate to land in the orthogonal plane to mean
         # that is at a distance d of the center
         X_hyperplane = np.append(X_prime, 0) + (
-            d * bar_Omega_k / max(np.linalg.norm(bar_Omega_k), epsilon)
+            d * mean / max(np.linalg.norm(mean), epsilon)
         )
         return X_hyperplane

@@ -34,7 +34,7 @@ def parallelized_loading(
     return B
 
 
-class SpSlNormalBayesianFactorGibbs:
+class SpSlFactorGibbs:
     def __init__(
         self,
         Y: torch.Tensor,
@@ -119,7 +119,7 @@ class SpSlNormalBayesianFactorGibbs:
             "Theta": [self.Theta.cpu().numpy()],
         }
 
-    def perform_gibbs_sampling(
+    def perform_gibbs(
         self, iterations: int = None, store: bool = True, plot: bool = True
     ):
         """Perform Gibbs sampling for the specified number of iterations."""
@@ -184,28 +184,6 @@ class SpSlNormalBayesianFactorGibbs:
 
         if store:
             self.paths["B"].append(self.B.cpu().numpy())
-
-    def sample_factors(self, store: bool = True):
-        """Sample the latent factor matrix `Omega`."""
-        precision = (
-            torch.eye(self.num_factor, device=self.device)
-            + self.B.T @ torch.diag(1 / self.Sigma) @ self.B
-        )
-        cov = torch.linalg.inv(precision)
-        cov = (cov + cov.T) / 2
-        mean = (cov @ self.B.T @ torch.diag(1 / self.Sigma) @ self.Y).cpu()
-        self.Omega = torch.stack(
-            [
-                torch.distributions.MultivariateNormal(
-                    mean[:, i], covariance_matrix=cov.cpu()
-                ).sample()
-                for i in range(self.num_obs)
-            ],
-            dim=1,
-        ).to(device=self.device, dtype=self.float_storage)
-
-        if store:
-            self.paths["Omega"].append(self.Omega.cpu().numpy())
 
     def sample_features_allocation(self, store: bool = True, epsilon: float = 1e-10):
         """Sample the feature allocation matrix `Gamma`."""

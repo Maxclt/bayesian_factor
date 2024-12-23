@@ -1,7 +1,7 @@
 import torch
 
 from src.simulations.normal_bayesian_factor_dgp import NormalBayesianFactorDGP
-from src.sampling.sparse_normal_factor_gibbs import (
+from src.sampling.sparse_factor_gibbs import (
     SpSlNormalBayesianFactorGibbs,
 )
 from src.utils.setup.create_true_loadings import create_true_loadings

@@ -6,10 +6,11 @@ import json
 
 from tqdm import tqdm
 from joblib import Parallel, delayed
-from scipy.stats import bernoulli, invgamma
+from scipy.stats import bernoulli, invgamma, norm
 from abc import ABC, abstractmethod
 
 from src.utils.probability.density import truncated_beta, trunc_norm_mixture
+from src.sampling.metropolis_hastings import metropolis_hastings
 
 
 def simulate_loading(args):
@@ -238,6 +239,36 @@ class SpSlFactorGibbs(ABC):
         self.Sigma = np.array(
             invgamma.rvs(a=shape, scale=scale),
             dtype=self.dtype,
+        )
+
+    def scale_group(self):
+        pass
+
+    def sample_scale_metropolis(self, k: int, rw_scale: float = 0.1):
+
+        def target_pdf(scale: float) -> float:
+            abs_term = np.abs(scale * self.B[:, k])
+            laplace_term = np.prod(
+                self.lambda0 * np.exp(-self.lambda0 * abs_term) * (1 - self.Gamma[:, k])
+                + self.lambda1 * np.exp(-self.lambda1 * abs_term) * self.Gamma[:, k]
+            )
+            gaussian_term = np.prod(np.exp(-self.Omega[k, :] ** 2 / (2 * scale**2)))
+            # fonction de B, scale parallelized over G * fonction de Omega, scale parallelized over n
+            return (
+                laplace_term
+                * gaussian_term
+                * scale ** (self.num_var - self.num_obs - 1)
+            )
+
+        def proposal_sampler(scale) -> float:
+            return scale + norm().rvs(scale=rw_scale)
+
+        scale = 1
+
+        return metropolis_hastings(
+            target_pdf=target_pdf,
+            proposal_sampler=proposal_sampler,
+            initial_state=scale,
         )
 
     def plot_heatmaps(

@@ -1,9 +1,10 @@
-import torch
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 from src.simulations.normal_bayesian_factor_dgp import NormalBayesianFactorDGP
-from src.sampling.sparse_factor_gibbs import (
-    SpSlNormalBayesianFactorGibbs,
-)
+from src.sampling.normal_factor_gibbs import SpSlNormalFactorGibbs
 from src.utils.setup.create_true_loadings import create_true_loadings
 
 # TODO modify this to have the possibility to set the parameter when running the file
@@ -12,8 +13,7 @@ from src.utils.setup.create_true_loadings import create_true_loadings
 # np.random.seed(42)
 
 # Normal Factor Bayesian Dimensions
-num_sim_1 = 100
-num_sim_2 = 1000
+num_sim = 100  # small = 100; big = 1000
 num_variables = 1956
 num_factors = 8
 
@@ -28,8 +28,7 @@ std = 5
 alpha = 1 / num_variables
 eta = 1
 epsilon = 1
-lambda0 = 20  # try with lambda greater
-lambda1 = 0.1
+lambda0 = 20
 
 
 # True Parameters
@@ -43,7 +42,7 @@ BTrue = create_true_loadings(
     std=std,
 )
 
-SigmaTrue = torch.ones(
+SigmaTrue = np.ones(
     num_variables
 )  # TODO define a function to create_true_covariance either random or not
 
@@ -55,20 +54,19 @@ Gamma0 = create_true_loadings(
     overlap=overlap,
 )
 
-Theta0 = torch.full((num_factors,), 0.5)
+Theta0 = np.full((num_factors,), 0.5)
 
 # Simulated Value for Y
 DataGeneratingProcess = NormalBayesianFactorDGP(B=BTrue, Sigma=SigmaTrue)
 
-Y_sim_1 = DataGeneratingProcess.simulate(size=num_sim_1)
-Y_sim_2 = DataGeneratingProcess.simulate(size=num_sim_2)
+Y_sim = DataGeneratingProcess.simulate(size=num_sim)
 
 # This block ensures multiprocessing works on Windows/macOS
 if __name__ == "__main__":
 
     # Initiate Bayesian Normal Factor Gibbs Sampler
-    SparseGibbsSampling1 = SpSlNormalBayesianFactorGibbs(
-        Y=Y_sim_1,
+    SparseGibbsSampling1 = SpSlNormalFactorGibbs(
+        Y=Y_sim,
         B=BTrue,
         Sigma=SigmaTrue,
         Gamma=Gamma0,
@@ -77,18 +75,16 @@ if __name__ == "__main__":
         eta=eta,
         epsilon=epsilon,
         lambda0=lambda0,
-        lambda1=lambda1,
-        device="cpu",  # You can change it to "cuda" if running on GPU
+        lambda1=0.001,
+        dtype=np.float32,
     )
 
     # Perform Gibbs Sampler for posterior
-    SparseGibbsSampling1.perform_gibbs_sampling(iterations=1000, plot=False)
-    B11_path_sim_1 = SparseGibbsSampling1.get_trajectory(
-        param="B", coeff=(1, 1), abs_value=True
-    )
+    SparseGibbsSampling1.perform_gibbs(iterations=1000, plot=False)
+    B11_path_small = SparseGibbsSampling1.get_path()
 
-    SparseGibbsSampling2 = SpSlNormalBayesianFactorGibbs(
-        Y=Y_sim_2,
+    SparseGibbsSampling2 = SpSlNormalFactorGibbs(
+        Y=Y_sim,
         B=BTrue,
         Sigma=SigmaTrue,
         Gamma=Gamma0,
@@ -97,11 +93,32 @@ if __name__ == "__main__":
         eta=eta,
         epsilon=epsilon,
         lambda0=lambda0,
-        lambda1=lambda1,
-        device="cpu",  # You can change it to "cuda" if running on GPU
+        lambda1=0.1,
+        dtype=np.float32,
     )
 
-    SparseGibbsSampling2.perform_gibbs_sampling(iterations=1000, plot=False)
-    B11_path_sim_2 = SparseGibbsSampling2.get_trajectory(
-        param="B", coeff=(1, 1), abs_value=True
-    )
+    SparseGibbsSampling2.perform_gibbs(iterations=1000, plot=False)
+    B11_path_big = SparseGibbsSampling2.get_path()
+
+
+# Prepare data for seaborn
+data = pd.DataFrame(
+    {
+        "Index": range(len(B11_path_small)),  # X-axis values
+        "small": np.log(B11_path_small),
+        "big": np.log(B11_path_big),
+    }
+)
+
+# Create the plot
+sns.set_theme(style="whitegrid")  # Set the style
+plt.figure(figsize=(8, 6))
+sns.lineplot(data=data, x="Index", y="small", label=r"$\lambda_1=0.001$")
+sns.lineplot(data=data, x="Index", y="big", label=r"$\lambda_1=0.1$")
+
+# Customize the plot
+plt.title(r"Magnitude Inflation with $n = 100$", fontsize=14)
+plt.xlabel("Iter")
+plt.ylabel(r"$\log(|\beta_{00}|)$")
+plt.legend()
+plt.show()

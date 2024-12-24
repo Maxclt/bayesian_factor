@@ -281,3 +281,20 @@ class SpSlFactorGibbs(ABC):
 
         plt.tight_layout()
         plt.show()
+
+    def get_path(
+        self, param: str = "B", coeff: tuple = (0, 0), abs_value: bool = True
+    ) -> np.ndarray:
+        if param not in self.paths["init"]:
+            raise KeyError(f"{param} not found in parameter paths.")
+
+        path = [
+            (
+                np.abs(self.paths[iter][param][coeff[0], coeff[1]])
+                if abs_value
+                else self.paths[iter][param][coeff[0], coeff[1]]
+            )
+            for iter in self.paths
+        ]
+
+        return np.array(path)

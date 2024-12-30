@@ -29,7 +29,7 @@ class OrthonormalFactorGibbs(SpSlFactorGibbs):
         # Keep only num_factors first rows
         self.Omega = Q[: self.num_factor, :] * np.sqrt(self.num_obs)
 
-    def sample_factors(self, epsilon: float = 1e-10):  # TODO parallelize for k
+    def sample_factors(self, epsilon: float = 1e-10):
 
         def process_k(k):
             mean, var = self.compute_Omega_moments(k)
@@ -88,7 +88,7 @@ class OrthonormalFactorGibbs(SpSlFactorGibbs):
             ) * np.exp(np.linalg.norm(proj) * d / var**2)
 
         def proposal_sampler(d: float) -> float:
-            return d + norm().rvs(scale=rw_scale)
+            return d + rw_scale * norm().rvs()
 
         # Initialize d, proposal scale
         d = np.random.uniform(-np.sqrt(self.num_obs), np.sqrt(self.num_obs))

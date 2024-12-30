@@ -111,6 +111,7 @@ class SpSlFactorGibbs(ABC):
     def perform_gibbs(
         self,
         iterations: int = None,
+        scale: bool = False,
         store: bool = True,
         plot: bool = True,
         file_path: str = None,
@@ -133,6 +134,9 @@ class SpSlFactorGibbs(ABC):
                 self.sample_features_sparsity()
                 self.sample_loadings()
                 self.sample_diag_covariance()
+
+                if scale:
+                    self.scale_group()
 
                 if store:
                     self.paths[i] = {
@@ -197,15 +201,15 @@ class SpSlFactorGibbs(ABC):
 
     def sample_features_allocation(self, epsilon: float = 1e-10):
         """Sample the feature allocation matrix `Gamma`."""
-        denominator = np.maximum(
+        denominator = (
             self.lambda0 * np.exp(-self.lambda0 * np.abs(self.B)) * (1 - self.Theta)
-            + self.lambda1 * np.exp(-self.lambda1 * np.abs(self.B)) * self.Theta,
-            epsilon,
-        )
+            + self.lambda1 * np.exp(-self.lambda1 * np.abs(self.B)) * self.Theta
+        ) * 1e15
+        denominator = np.maximum(denominator, epsilon)
 
         p = (
-            self.lambda1 * np.exp(-self.lambda1 * np.abs(self.B)) * self.Theta
-        ) / denominator
+            self.lambda1 * np.exp(-self.lambda1 * np.abs(self.B)) * self.Theta * 1e15
+        ) / (denominator)
 
         self.Gamma = bernoulli(p).rvs()
 
@@ -241,8 +245,23 @@ class SpSlFactorGibbs(ABC):
             dtype=self.dtype,
         )
 
-    def scale_group(self):
-        pass
+    def scale_group(self, epsilon: float = 1e-10):
+
+        def process_k(k):
+            scale = self.sample_scale_metropolis(k=k)
+            B_k = scale * self.B[:, k]
+            Omega_k = (1 / max(scale, epsilon)) * self.Omega[k, :]
+            return k, B_k, Omega_k
+
+        # Parallel computation using joblib
+        results = Parallel(n_jobs=-1)(
+            delayed(process_k)(k) for k in range(self.num_factor)
+        )
+
+        # Update B, Omega with results
+        for k, B_k, Omega_k in results:
+            self.B[:, k] = B_k
+            self.Omega[k, :] = Omega_k
 
     def sample_scale_metropolis(self, k: int, rw_scale: float = 0.1):
 
@@ -261,7 +280,7 @@ class SpSlFactorGibbs(ABC):
             )
 
         def proposal_sampler(scale) -> float:
-            return scale + norm().rvs(scale=rw_scale)
+            return scale + rw_scale * norm().rvs()
 
         scale = 1
 

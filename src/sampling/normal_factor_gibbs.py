@@ -14,7 +14,7 @@ class SpSlNormalFactorGibbs(SpSlFactorGibbs):
         super().__init__(*args, **kwargs)
 
     def initialize_factors(self):
-        self.Omega = np.random.normal(size=(self.num_obs, self.num_obs)).astype(
+        self.Omega = np.random.normal(size=(self.num_factor, self.num_obs)).astype(
             self.dtype
         )
 

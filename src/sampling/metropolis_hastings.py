@@ -2,8 +2,8 @@ import numpy as np
 
 
 def metropolis_hastings(
-    target_pdf: function,
-    proposal_sampler: function,
+    target_pdf,
+    proposal_sampler,
     initial_state: float,
     burn_in: int = 100,
 ) -> float:

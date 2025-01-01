@@ -81,6 +81,6 @@ venv.bak/
 docs/_build/
 
 # Notebooks
-notebooks/
+#notebooks/
 *.ipynb_checkpoints
-*.ipynb
+#*.ipynb

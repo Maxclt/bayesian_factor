@@ -24,20 +24,20 @@ class GhoshDunsonGibbs(SpSlFactorGibbs):
     """
 
     def __init__(self, *args, **kwargs):
-        super().__init__(self, *args, **kwargs)
+        super().__init__( *args, **kwargs)
 
 
     def initialize_factors(self):
         """
         w_i ~N(0, I) is presribed in this model. w_i are the columns of Omega (Kxn)
         """
-        self.Omega= np.random.normal(size=(self.num_factors, self.num_obs)).astype(self.dtype)
+        self.Omega= np.random.normal(size=(self.num_factor, self.num_obs)).astype(self.dtype)
         
     def sample_factors(self, epsilon: float = 1e-10):
         """
         Sample Omega from a normal distribution
         """
-        self.Omega = np.random.normal(size=(self.num_factors, self.num_obs)).astype(self.dtype)
+        self.Omega = np.random.normal(size=(self.num_factor, self.num_obs)).astype(self.dtype)
         
     def sample_loadings(self, epsilon: float = 1e-10,lambda_r : float = 0.001):
         """

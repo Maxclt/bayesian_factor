@@ -129,11 +129,11 @@ class SpSlFactorGibbs(ABC):
 
         with tqdm(total=self.num_iters, desc="Gibbs Sampling", unit="iter") as pbar:
             for i in range(self.num_iters):
-                self.sample_factors()
-                self.sample_features_allocation()
-                self.sample_features_sparsity()
-                self.sample_loadings()
-                self.sample_diag_covariance()
+                self.sample_factors() #Update Omega
+                self.sample_features_allocation() #Update Gamma
+                self.sample_features_sparsity() #Update Theta
+                self.sample_loadings() #Update B
+                self.sample_diag_covariance() #Update Sigma
 
                 if scale:
                     self.scale_group()
@@ -233,6 +233,7 @@ class SpSlFactorGibbs(ABC):
             else:
                 a, b = self.Theta[k + 1], self.Theta[k - 1]
 
+            # print(f" alpha: {alpha}, beta: {beta}, a: {a}, b: {b}")
             self.Theta[k] = truncated_beta()._rvs(alpha=alpha, beta=beta, a=a, b=b)
 
     def sample_diag_covariance(self):

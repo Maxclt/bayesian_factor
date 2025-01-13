@@ -28,7 +28,7 @@ def metropolis_hastings(
         proposed_pdf = target_pdf(proposed_state)
 
         # Acceptance probability
-        acceptance_ratio = proposed_pdf / current_pdf
+        acceptance_ratio = proposed_pdf / np.maximum(current_pdf, 1e-10)
 
         # Decide whether to accept the new state
         if np.random.rand() < acceptance_ratio:

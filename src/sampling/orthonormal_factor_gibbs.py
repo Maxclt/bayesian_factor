@@ -16,7 +16,7 @@ class OrthonormalFactorGibbs(SpSlFactorGibbs):
     """
 
     def __init__(self, *args, **kwargs):
-        super().__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def initialize_factors(self):
         """
@@ -27,8 +27,9 @@ class OrthonormalFactorGibbs(SpSlFactorGibbs):
             np.random.normal(size=(self.num_obs, self.num_obs)).astype(self.dtype)
         )
         # Keep only num_factors first rows
-        self.Omega = Q[: self.num_factor, :] * np.sqrt(self.num_obs)
-
+        return Q[: self.num_factor, :] * np.sqrt(self.num_obs) #since in base parent class we have self.Omega = self.initialize_factors()
+        
+        
     def sample_factors(self, epsilon: float = 1e-10):
 
         def process_k(k):
@@ -73,7 +74,7 @@ class OrthonormalFactorGibbs(SpSlFactorGibbs):
             "gt,tn->gn", B_excluded, Omega_excluded
         )  # Shape (G, N)
         residual = (self.Y - excluded_sum).T  # Shape (N, G)
-        mean = var * residual @ np.diag(1 / self.Sigma) @ self.B[:, k]  # Shape: (N, G)
+        mean = var * residual @ np.diag(1 / self.Sigma) @ self.B[:, k]  # Shape: (N, 1)
 
         return mean, var
 

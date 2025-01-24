@@ -1,7 +1,6 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
-from sklearn.linear_model import Lasso
 
 
 def map_estimation(
@@ -77,7 +76,6 @@ def map_estimation(
         d_inf = infinite_norm_distance(B_star, B_star_old)
         B_star_old = B_star
         count += 1
-        print(B_star.max())
         if count > forced_stop:
             break
 
@@ -110,7 +108,7 @@ def get_latent_features(B, Sigma, Y, num_factors):
 
     return Omega, M
     
-def get_latent_indicators(B, Theta, lambda0, lambda1, epsilon):
+def get_latent_indicators(B, Theta, lambda0, lambda1):
     """
     Extract the latent indicators means.
 
@@ -119,7 +117,6 @@ def get_latent_indicators(B, Theta, lambda0, lambda1, epsilon):
         Theta (torch.tensor): size (K)
         lambda0 (float)
         lambda1 (float)
-        epsilon (float)
 
     Returns:
         gamma (torch.tensor): size (G*K)
@@ -131,7 +128,6 @@ def get_latent_indicators(B, Theta, lambda0, lambda1, epsilon):
         * torch.exp(-lambda0 * torch.abs(B))
         * (1 - Theta)
         + lambda1 * torch.exp(-lambda1 * torch.abs(B)) * Theta
-        + epsilon
     )
 
     return gamma
@@ -193,7 +189,7 @@ def get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, A, num_factors, j):
     # Compute z_j
     A_L = get_cholesky_factor(A)
     A_L_inv = torch.linalg.inv(A_L)  # Inverse of A_L
-    z_j = (A_L_inv @ Omega_tilde.T @ Y_tilde[:, j]) / Y_tilde.size(1)  # Normalize by n (number of observations)
+    z_j = (A_L_inv @ Omega_tilde.T @ Y_tilde[:, j]) / (Y_tilde.size(0) - num_factors)  # Normalize by n (number of observations)
 
     # Initialize beta_j_star
     beta_j_star = torch.zeros(num_factors).to(B.device)
@@ -209,7 +205,7 @@ def get_loading(Y_tilde, Omega_tilde, B, Sigma, gamma, A, num_factors, j):
         z = z_j[k]+z_k_plus
         beta_j_star[k] = (
             torch.sign(z)
-            * max(0, torch.abs(z) - sigma_j * lambda_j[k] * A_L_inv[k, k] / Y_tilde.size(1))
+            * max(0, torch.abs(z) - sigma_j * lambda_j[k] * A_L_inv[k, k] / (Y_tilde.size(0) - num_factors))
         ) - z_k_plus
 
     return beta_j_star.to(torch.float64)
@@ -308,10 +304,10 @@ def infinite_norm_distance(A, B):
     # Compute the element-wise absolute difference
     diff = torch.abs(A - B)
 
-    # Compute the col sums
-    col_sums = torch.sum(diff, dim=0)
+    # Compute the row sums
+    row_sums = torch.sum(diff, dim=1)
 
-    # Take the maximum col sum
-    infinite_norm = torch.max(col_sums).item()
+    # Take the maximum row sum
+    infinite_norm = torch.max(row_sums).item()
 
     return infinite_norm

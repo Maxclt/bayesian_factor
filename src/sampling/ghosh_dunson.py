@@ -242,15 +242,15 @@ class GhoshDunsonGibbs(SpSlFactorGibbs):
                 # Update the progress bar
                 pbar.update(1)
 
-                if i % (self.num_iters // 10) == 0 or i < 10:
-                    print(f"Check Theta: {self.Theta}")
+                # if i % (self.num_iters // 10) == 0 or i < 10:
+                    # print(f"Check Theta: {self.Theta}")
                     
                     # print(f"Check Sigma: {self.Sigma}")
                    
 
         if plot:
             self.plot_heatmaps()
-            self.plot_heatmaps(str_param="Q")
+            # self.plot_heatmaps(str_param="Q")
 
         if file_path is not None:
             with open(file_path, "w") as json_file:

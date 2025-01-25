@@ -75,11 +75,12 @@ venv.bak/
 *.temp
 *.swp
 *.swo
+*.DS_Store
 
 # Documentation builds
 docs/_build/
 
 # Notebooks
-notebooks/
+#notebooks/
 *.ipynb_checkpoints
-*.ipynb
+#*.ipynb

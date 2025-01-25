@@ -17,12 +17,39 @@ Factor models are crucial tools for interpretable dimensionality reduction in hi
 2. **Efficient Gibbs Sampling:**
    - Includes enhancements for posterior sampling, addressing magnitude inflation issues.
 
-3. **Simulations and Real-World Data:**
-   - Synthetic data generation for high-dimensional sparse scenarios.
-   - Validation using benchmark datasets (e.g., gene expression data).
-
-4. **Comparison of Approaches:**
+3. **Comparison of Approaches:**
    - Benchmarks against models like those by Ghosh and Dunson (2009) and Bhattacharya and Dunson (2011).
+
+## **Replicate Results**
+
+To replicate the results of this project, follow these steps:
+
+1. **Clone the repository**  
+   Clone the repository by running the following command:
+
+   ```bash
+   git clone https://github.com/yourusername/your-repo-name.git
+   ```
+
+2. **Install the environment**  
+   Navigate to the `bayesian_factor` directory and install the environment:
+
+   ```bash
+   cd bayesian_factor
+   poetry install
+   ```
+
+   > If you don't have Poetry installed, you can install it using pip:
+
+   ```bash
+   pip install poetry
+   ```
+
+3. **Run the Jupyter Notebook**  
+   Go to the `notebooks` folder and run all the cells in the `Replicate_results.ipynb` notebook
+
+   Make sure all the cells are executed to replicate the results presented in our report under `docs/BS_project.pdf`.
+
 
 ---
 
@@ -52,6 +79,7 @@ bayesian-factor-model/
 ├── data/
 │   ├── synthetic/         # Generated datasets
 │   └── real-world/        # Processed real-world datasets
+├── notebooks/             # Notebooks used to get our results
 ├── tests/                 # Unit and integration tests
 ├── results/               # Outputs from simulations and analyses
 ├── docs/                  # Documentation for the project

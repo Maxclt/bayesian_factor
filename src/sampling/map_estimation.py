@@ -11,7 +11,6 @@ def map_estimation(
     alpha: float,
     lambda0: float,
     lambda1: float,
-    epsilon: float,
     num_var: int,
     num_obs: int,
     num_factors: int,
@@ -29,7 +28,6 @@ def map_estimation(
         alpha (float)
         lambda0 (float)
         lambda1 (float)
-        epsilon (float)
         num_var(int): G
         num_obs (int): n
         num_factors (int): K
@@ -48,7 +46,7 @@ def map_estimation(
 
         # E-Step
         Omega, M = get_latent_features(B, Sigma, Y, num_factors)
-        gamma = get_latent_indicators(B, Theta, lambda0, lambda1, epsilon)
+        gamma = get_latent_indicators(B, Theta, lambda0, lambda1)
 
         # M-Stepbeta
         ## Set new variables

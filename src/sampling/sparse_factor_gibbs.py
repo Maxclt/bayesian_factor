@@ -2,6 +2,7 @@ import itertools
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+import torch
 import json
 
 from tqdm import tqdm
@@ -11,6 +12,7 @@ from abc import ABC, abstractmethod
 
 from src.utils.probability.density import truncated_beta, trunc_norm_mixture
 from src.sampling.metropolis_hastings import metropolis_hastings
+from src.sampling.map_estimation import map_estimation
 
 
 def simulate_loading(args):
@@ -111,6 +113,7 @@ class SpSlFactorGibbs(ABC):
     def perform_gibbs(
         self,
         iterations: int = None,
+        map_prior: bool = False,
         scale: bool = False,
         store: bool = True,
         plot: bool = True,
@@ -120,12 +123,42 @@ class SpSlFactorGibbs(ABC):
 
         Args:
             iterations (int, optional): Number of iterations of the gibbs sampler. Defaults to None.
+            map_prior (bool, optional): Whether or not to use PXL-EM algorithm to get priors on B, Sigma and Theta. Default to False
             store (bool, optional): Boolean to store or not the parameters. Defaults to True.
             plot (bool, optional): Boolean to plot or not. Defaults to True.
             file_path (str, optional): File path for storaga. Defaults to None.
         """
         if iterations:
             self.num_iters = iterations
+
+        if map_prior:
+            print("Know that the priors will be false, as the algorithm doesn't work at the moment.")
+            # PXL-EM initialization
+            num_factors_pxl_em = self.num_factor * 4
+            B_0 = np.random.normal(size = num_factors_pxl_em*self.num_var).reshape((self.num_var, num_factors_pxl_em))
+            S_0 = np.ones(self.num_var)
+            T_0 = 0.5 * np.ones(num_factors_pxl_em)
+            # Perform MAP estimation
+            B_map, Sigma_map, Theta_map = map_estimation(
+                torch.tensor(B_0),
+                torch.tensor(S_0),
+                torch.tensor(T_0),
+                torch.tensor(self.Y),
+                self.alpha,
+                self.lambda0,
+                self.lambda1,
+                self.num_var,
+                self.num_obs,
+                num_factors_pxl_em,
+                convergence_criterion=0.05,
+                forced_stop=50,
+            )
+
+            # Update B, Sigma, and Theta with the MAP estimates
+            self.B = B_map[:, :self.num_factor].numpy().astype(self.dtype)
+            self.Sigma = torch.abs(Sigma_map).numpy().astype(self.dtype)
+            self.Theta = torch.abs(Theta_map)[:self.num_factor].numpy().astype(self.dtype)
+
 
         with tqdm(total=self.num_iters, desc="Gibbs Sampling", unit="iter") as pbar:
             for i in range(self.num_iters):

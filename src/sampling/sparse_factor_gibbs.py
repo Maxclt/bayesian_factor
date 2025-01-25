@@ -291,7 +291,7 @@ class SpSlFactorGibbs(ABC):
         )
 
     def plot_heatmaps(
-        self, str_param: str = "B", abs_value: bool = True, cmap: str = "viridis"
+        self, str_param: str = "B", abs_value: bool = True, cmap: str = "viridis", save_path: str = None, transform = None,
     ):
         """Plot heatmaps of parameter trajectories."""
         if str_param not in self.paths["init"]:
@@ -307,12 +307,20 @@ class SpSlFactorGibbs(ABC):
         n_cols = 5
         n_rows = -(-len(iter_indices) // n_cols)
 
-        first_matrix = (
-            abs(self.paths["init"][str_param])
-            if abs_value
-            else self.paths["init"][str_param]
-        )
-        vmin, vmax = first_matrix.min(), first_matrix.max()
+        try:
+            first_matrix = (
+                abs(self.paths["init"][str_param])
+                if abs_value
+                else self.paths["init"][str_param]
+            )
+            if str_param != "Omega":
+                vmin, vmax = first_matrix.min(), first_matrix.max()
+            else:
+                vmin, vmax = 0, 1
+        
+        except:
+            print("The quantity is not initialized before the first loop. Take vmin = 0, vmax = 1")
+            vmin, vmax = 0, 1
 
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
         axes = axes.flatten()
@@ -323,6 +331,8 @@ class SpSlFactorGibbs(ABC):
                 if abs_value
                 else self.paths[idx - 1][str_param]
             )
+            if transform is not None:
+                matrix = transform(matrix, self)
             sns.heatmap(matrix, cmap=cmap, cbar=False, ax=ax, vmin=vmin, vmax=vmax)
             ax.set_title(f"Iter {idx}")
 
@@ -330,6 +340,8 @@ class SpSlFactorGibbs(ABC):
             ax.axis("off")
 
         plt.tight_layout()
+        if save_path is not None:
+            plt.savefig(save_path)
         plt.show()
 
     def get_path(

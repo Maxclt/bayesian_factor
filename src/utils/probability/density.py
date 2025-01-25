@@ -1,6 +1,8 @@
 import numpy as np
 from scipy import stats
 
+#TODO change all truncated to rejection sampling
+
 
 class truncated_beta(stats.rv_continuous):
     """Contains methods to sample from a truncated beta distribution

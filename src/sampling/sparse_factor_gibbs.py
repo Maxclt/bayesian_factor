@@ -100,12 +100,21 @@ class SpSlFactorGibbs(ABC):
             "Theta": self.Theta,  # TODO modify plot accordingly
         }
 
+        # Simulation Without Updating
+        self.simulated_paths = {
+            "B": [],
+            "Omega": [],
+            "Sigma": [],
+            "Gamma": [],
+            "Theta": [],
+        }
+
     @abstractmethod
     def initialize_factors(self, epsilon: float = 1e-10):
         pass
 
     @abstractmethod
-    def sample_factors(self):
+    def sample_factors(self, update=True):
         pass
 
     def perform_gibbs(
@@ -160,7 +169,7 @@ class SpSlFactorGibbs(ABC):
             with open(file_path, "w") as json_file:
                 json.dump(self.paths, json_file)
 
-    def sample_loadings(self):
+    def sample_loadings(self, update=True):
         """Vectorized sampling of the loading matrix `B`."""
         # Compute a
         a = np.einsum("ki,j->jk", self.Omega**2, 1 / (2 * self.Sigma), dtype=self.dtype)
@@ -189,17 +198,30 @@ class SpSlFactorGibbs(ABC):
         mu_neg = (b + c) / (2 * a)
         sigma = np.sqrt(1 / (2 * a))
 
-        # Simulate samples using CPU for now (replace with GPU-adapted truncated sampler if available)
-        self.B = parallelized_loading(
-            mu_pos=mu_pos,
-            mu_neg=mu_neg,
-            sigma=sigma,
-            num_var=self.num_var,
-            num_factor=self.num_factor,
-            dtype=self.dtype,
-        )  # parallelize and assess what is slow
+        if update:
+            # Simulate samples using CPU for now (replace with GPU-adapted truncated sampler if available)
+            self.B = parallelized_loading(
+                mu_pos=mu_pos,
+                mu_neg=mu_neg,
+                sigma=sigma,
+                num_var=self.num_var,
+                num_factor=self.num_factor,
+                dtype=self.dtype,
+            )  # parallelize and assess what is slow
 
-    def sample_features_allocation(self, epsilon: float = 1e-10):
+        else:
+            self.simulated_paths["B"].append(
+                parallelized_loading(
+                    mu_pos=mu_pos,
+                    mu_neg=mu_neg,
+                    sigma=sigma,
+                    num_var=self.num_var,
+                    num_factor=self.num_factor,
+                    dtype=self.dtype,
+                )
+            )
+
+    def sample_features_allocation(self, epsilon: float = 1e-10, update=True):
         """Sample the feature allocation matrix `Gamma`."""
         denominator = (
             self.lambda0 * np.exp(-self.lambda0 * np.abs(self.B)) * (1 - self.Theta)
@@ -211,13 +233,17 @@ class SpSlFactorGibbs(ABC):
             self.lambda1 * np.exp(-self.lambda1 * np.abs(self.B)) * self.Theta * 1e15
         ) / (denominator)
 
-        self.Gamma = bernoulli(p).rvs()
+        if update:
+            self.Gamma = bernoulli(p).rvs()
+            self.p = p
 
-        self.p = p
+        else:
+            self.simulated_paths["Gamma"].append(bernoulli(p).rvs())
 
     def sample_features_sparsity(
         self,
         epsilon: float = 1e-15,
+        update=True,
     ):
         for k in range(self.num_factor - 1, -1, -1):
             alpha = max(
@@ -233,17 +259,33 @@ class SpSlFactorGibbs(ABC):
             else:
                 a, b = self.Theta[k + 1], self.Theta[k - 1]
 
-            self.Theta[k] = truncated_beta()._rvs(alpha=alpha, beta=beta, a=a, b=b)
+            if update:
+                self.Theta[k] = truncated_beta()._rvs(alpha=alpha, beta=beta, a=a, b=b)
 
-    def sample_diag_covariance(self):
+            else:
+                self.simulated_paths["Theta"].append(
+                    truncated_beta()._rvs(alpha=alpha, beta=beta, a=a, b=b)
+                )
+
+    def sample_diag_covariance(self, update=True):
         """Sample the diagonal covariance matrix `Sigma`."""
         shape = (self.eta + self.num_obs) / 2
         squared_errors = np.sum((self.Y - self.B @ self.Omega) ** 2, axis=1)
         scale = (self.eta * self.epsilon + squared_errors) / 2
-        self.Sigma = np.array(
-            invgamma.rvs(a=shape, scale=scale),
-            dtype=self.dtype,
-        )
+
+        if update:
+            self.Sigma = np.array(
+                invgamma.rvs(a=shape, scale=scale),
+                dtype=self.dtype,
+            )
+
+        else:
+            self.simulated_paths["Sigma"].append(
+                np.array(
+                    invgamma.rvs(a=shape, scale=scale),
+                    dtype=self.dtype,
+                )
+            )
 
     def scale_group(self, epsilon: float = 1e-10):
 
@@ -333,7 +375,10 @@ class SpSlFactorGibbs(ABC):
         plt.show()
 
     def get_path(
-        self, param: str = "B", coeff: tuple = (0, 0), abs_value: bool = True
+        self,
+        param: str = "B",
+        coeff: tuple = (0, 0),
+        abs_value: bool = True,
     ) -> np.ndarray:
         if param not in self.paths["init"]:
             raise KeyError(f"{param} not found in parameter paths.")
@@ -348,3 +393,27 @@ class SpSlFactorGibbs(ABC):
         ]
 
         return np.array(path)
+
+    def get_sim(
+        self,
+        param: str = "B",
+        coeff: tuple = (0, 0),
+        abs_value: bool = True,
+    ):
+        if param not in self.simulated_paths:
+            raise KeyError(f"{param} not found in parameter paths.")
+
+        sim = [
+            np.abs(iter[coeff[0], coeff[1]]) if abs_value else iter[coeff[0], coeff[1]]
+            for iter in self.simulated_paths[param]
+        ]
+
+        return np.array(sim)
+
+    def simulate(self, num_iter: int):
+        for _ in range(num_iter):
+            self.sample_factors(update=False)
+            self.sample_features_allocation(update=False)
+            self.sample_features_sparsity(update=False)
+            self.sample_loadings(update=False)
+            self.sample_diag_covariance(update=False)

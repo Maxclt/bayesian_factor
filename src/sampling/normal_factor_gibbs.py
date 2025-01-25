@@ -18,7 +18,7 @@ class SpSlNormalFactorGibbs(SpSlFactorGibbs):
             self.dtype
         )
 
-    def sample_factors(self, epsilon: float = 1e-10):
+    def sample_factors(self, epsilon: float = 1e-10, update=True):
         """Sample the latent factor matrix `Omega` of shape ()."""
         precision = (
             np.eye(self.num_factor, dtype=self.dtype)
@@ -27,10 +27,22 @@ class SpSlNormalFactorGibbs(SpSlFactorGibbs):
         cov = np.linalg.inv(precision)
         cov = (cov + cov.T) / 2
         mean = cov @ self.B.T @ np.diag(1 / self.Sigma) @ self.Y
-        self.Omega = np.stack(
-            [
-                multivariate_normal(mean=mean[:, i], cov=cov).rvs()
-                for i in range(self.num_obs)
-            ],
-            axis=1,
-        ).astype(dtype=self.dtype)
+        if update:
+            self.Omega = np.stack(
+                [
+                    multivariate_normal(mean=mean[:, i], cov=cov).rvs()
+                    for i in range(self.num_obs)
+                ],
+                axis=1,
+            ).astype(dtype=self.dtype)
+
+        else:
+            self.simulated_paths["Omega"].append(
+                np.stack(
+                    [
+                        multivariate_normal(mean=mean[:, i], cov=cov).rvs()
+                        for i in range(self.num_obs)
+                    ],
+                    axis=1,
+                ).astype(dtype=self.dtype)
+            )
